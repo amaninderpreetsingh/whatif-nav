@@ -1,5 +1,7 @@
 import { useEffect, useCallback, useMemo, useRef, useState } from "react";
-import { View, StyleSheet, Alert } from "react-native";
+import { View, Text, Pressable, StyleSheet, Alert } from "react-native";
+import { BlurView } from "expo-blur";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapboxGL from "@rnmapbox/maps";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -15,11 +17,10 @@ import { RoutingService } from "@/services/routing/routing-service";
 import { GoogleRouteProvider } from "@/services/routing/google-provider";
 import { MapboxRouteProvider } from "@/services/routing/mapbox-provider";
 import { LocationService } from "@/services/location/location-service";
-import { insertWaypointAtCorrectPosition } from "@/utils/polyline";
 import { debounce } from "@/utils/debounce";
 import type { Coordinate, Step, WhatIfWaypoint } from "@/services/routing/types";
 import Toast from "react-native-toast-message";
-import { colors } from "@/theme";
+import { colors, typography } from "@/theme";
 
 const routingService = new RoutingService(
   new GoogleRouteProvider(),
@@ -52,6 +53,7 @@ function isCoordInBounds(
 
 export default function NavigationScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const activeRoute = useNavigationStore((s) => s.activeRoute);
   const origin = useNavigationStore((s) => s.origin);
@@ -60,6 +62,7 @@ export default function NavigationScreen() {
   const updatePosition = useNavigationStore((s) => s.updatePosition);
   const updateETA = useNavigationStore((s) => s.updateETA);
   const replaceRoute = useNavigationStore((s) => s.replaceRoute);
+  const stopNavigation = useNavigationStore((s) => s.stopNavigation);
 
   const isWhatIfActive = useWhatIfStore((s) => s.isActive);
   const whatIfWaypoints = useWhatIfStore((s) => s.waypoints);
@@ -215,14 +218,11 @@ export default function NavigationScreen() {
       coordinate: tappedPoint,
       label: `Point ${whatIfWaypoints.length + 1}`,
       addedAt: Date.now(),
-      index: 0,
+      index: whatIfWaypoints.length,
     };
 
-    const updatedWaypoints = insertWaypointAtCorrectPosition(
-      newWaypoint,
-      whatIfWaypoints,
-      activeRoute.coordinates
-    );
+    // Append in tap order (not geographic) so the user-defined sequence is honored
+    const updatedWaypoints = [...whatIfWaypoints, newWaypoint];
 
     setWaypoints(updatedWaypoints);
     debouncedRecalculate(updatedWaypoints);
@@ -230,6 +230,22 @@ export default function NavigationScreen() {
 
   const handleStepPress = (step: Step) => {
     if (!isWhatIfEnabled || !activeRoute) return;
+
+    // Toggle: if this step is already a waypoint, REMOVE it
+    const existingIndex = whatIfWaypoints.findIndex((wp) => wp.id === step.id);
+    if (existingIndex !== -1) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const updated = whatIfWaypoints
+        .filter((wp) => wp.id !== step.id)
+        .map((wp, i) => ({ ...wp, index: i }));
+      setWaypoints(updated);
+      if (updated.length === 0) {
+        endWhatIf();
+      } else {
+        debouncedRecalculate(updated);
+      }
+      return;
+    }
 
     if (!isWhatIfActive) {
       startWhatIf(activeRoute);
@@ -244,11 +260,6 @@ export default function NavigationScreen() {
       return;
     }
 
-    // Don't add the same step twice
-    if (whatIfWaypoints.some((wp) => wp.id === step.id)) {
-      return;
-    }
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const newWaypoint: WhatIfWaypoint = {
@@ -256,14 +267,11 @@ export default function NavigationScreen() {
       coordinate: step.coordinate,
       label: step.instruction || `${step.maneuverType} ${step.modifier}`.trim(),
       addedAt: Date.now(),
-      index: 0,
+      index: whatIfWaypoints.length,
     };
 
-    const updatedWaypoints = insertWaypointAtCorrectPosition(
-      newWaypoint,
-      whatIfWaypoints,
-      activeRoute.coordinates
-    );
+    // Append in tap order so the route follows the user-defined sequence
+    const updatedWaypoints = [...whatIfWaypoints, newWaypoint];
 
     setWaypoints(updatedWaypoints);
     debouncedRecalculate(updatedWaypoints);
@@ -313,6 +321,37 @@ export default function NavigationScreen() {
     }
   };
 
+  const handleEndRoute = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      "End route?",
+      "You can save this route for next time.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "End without saving",
+          style: "destructive",
+          onPress: () => {
+            locationService.stopTracking();
+            endWhatIf();
+            stopNavigation();
+            router.replace("/(main)");
+          },
+        },
+        {
+          text: "Save & end",
+          onPress: () => {
+            locationService.stopTracking();
+            endWhatIf();
+            // route-summary screen has the save form; it reads from navigationStore
+            // and clears state when done
+            router.replace("/(main)/route-summary");
+          },
+        },
+      ]
+    );
+  };
+
   if (!activeRoute) {
     router.back();
     return null;
@@ -348,25 +387,45 @@ export default function NavigationScreen() {
         />
 
         {/* Tappable maneuver markers — only render those in the visible viewport */}
-        {visibleSteps.map((step) => (
-          <ManeuverMarker
-            key={step.id}
-            step={step}
-            onPress={handleStepPress}
-            highlighted={whatIfWaypoints.some((wp) => wp.id === step.id)}
-          />
-        ))}
+        {visibleSteps.map((step) => {
+          const orderIndex = whatIfWaypoints.findIndex(
+            (wp) => wp.id === step.id
+          );
+          return (
+            <ManeuverMarker
+              key={step.id}
+              step={step}
+              onPress={handleStepPress}
+              highlighted={orderIndex !== -1}
+              order={orderIndex !== -1 ? orderIndex + 1 : undefined}
+            />
+          );
+        })}
 
-        {/* What-if waypoint pins */}
-        {whatIfWaypoints.map((wp) => (
-          <MapboxGL.PointAnnotation
-            key={wp.id}
-            id={wp.id}
-            coordinate={[wp.coordinate.lng, wp.coordinate.lat]}
-          >
-            <View style={styles.waypointPin} />
-          </MapboxGL.PointAnnotation>
-        ))}
+        {/* What-if waypoint pins for empty-map taps (maneuver markers handle their own numbering) */}
+        {whatIfWaypoints
+          .filter(
+            (wp) =>
+              !allManeuverSteps.some((step) => step.id === wp.id)
+          )
+          .map((wp) => {
+            const order = whatIfWaypoints.findIndex((w) => w.id === wp.id) + 1;
+            return (
+              <MapboxGL.PointAnnotation
+                key={wp.id}
+                id={wp.id}
+                coordinate={[wp.coordinate.lng, wp.coordinate.lat]}
+                onSelected={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  handleRemoveWaypoint(wp.id);
+                }}
+              >
+                <View style={styles.waypointPin}>
+                  <Text style={styles.waypointPinText}>{order}</Text>
+                </View>
+              </MapboxGL.PointAnnotation>
+            );
+          })}
 
         {/* Current position */}
         {currentPosition && (
@@ -380,6 +439,32 @@ export default function NavigationScreen() {
       </MapboxGL.MapView>
 
       <ConnectionBanner />
+
+      {/* End Route — top-left floating button */}
+      <View
+        style={[
+          styles.endRouteWrapper,
+          { top: insets.top + 12, left: 16 },
+        ]}
+      >
+        <Pressable
+          onPress={handleEndRoute}
+          style={({ pressed }) => [
+            styles.endRouteButton,
+            pressed && styles.endRouteButtonPressed,
+          ]}
+        >
+          <BlurView
+            intensity={70}
+            tint="dark"
+            style={styles.endRouteBlur}
+          >
+            <Text style={styles.endRouteIcon}>×</Text>
+            <Text style={styles.endRouteLabel}>End</Text>
+          </BlurView>
+        </Pressable>
+      </View>
+
       <NavigationBottomSheet
         onAcceptRoute={handleAcceptRoute}
         onDiscardChanges={handleDiscardChanges}
@@ -394,16 +479,64 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   map: { flex: 1 },
   waypointPin: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: "#94A3B8",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.accentBright,
     borderWidth: 3,
-    borderColor: colors.textPrimary,
+    borderColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 6,
+  },
+  waypointPinText: {
+    fontFamily: typography.bodyBold,
+    fontSize: 13,
+    color: "#FFFFFF",
+    lineHeight: 14,
+    textAlign: "center",
+  },
+  endRouteWrapper: {
+    position: "absolute",
+    zIndex: 50,
+  },
+  endRouteButton: {
+    borderRadius: 24,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  endRouteButtonPressed: {
+    opacity: 0.85,
+  },
+  endRouteBlur: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "rgba(20, 25, 40, 0.55)",
+  },
+  endRouteIcon: {
+    fontFamily: typography.body,
+    fontSize: 20,
+    lineHeight: 22,
+    color: colors.danger,
+    marginRight: 6,
+    fontWeight: "600",
+  },
+  endRouteLabel: {
+    fontFamily: typography.bodyMed,
+    fontSize: 14,
+    color: colors.textPrimary,
+    letterSpacing: -0.1,
   },
   currentPos: {
     width: 18,

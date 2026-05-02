@@ -1,16 +1,17 @@
-import { View, StyleSheet } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import MapboxGL from "@rnmapbox/maps";
 import * as Haptics from "expo-haptics";
 import type { Step } from "@/services/routing/types";
-import { colors } from "@/theme";
+import { colors, typography } from "@/theme";
 
 interface Props {
   step: Step;
   onPress: (step: Step) => void;
   highlighted?: boolean;
+  order?: number;
 }
 
-export function ManeuverMarker({ step, onPress, highlighted }: Props) {
+export function ManeuverMarker({ step, onPress, highlighted, order }: Props) {
   return (
     <MapboxGL.PointAnnotation
       id={step.id}
@@ -25,16 +26,20 @@ export function ManeuverMarker({ step, onPress, highlighted }: Props) {
           styles.marker,
           highlighted && styles.markerHighlighted,
         ]}
-      />
+      >
+        {highlighted && order !== undefined ? (
+          <Text style={styles.orderText}>{order}</Text>
+        ) : null}
+      </View>
     </MapboxGL.PointAnnotation>
   );
 }
 
 const styles = StyleSheet.create({
   marker: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: "rgba(255, 255, 255, 0.95)",
     borderWidth: 3,
     borderColor: colors.accent,
@@ -42,12 +47,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 6,
+    justifyContent: "center",
+    alignItems: "center",
   },
   markerHighlighted: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: colors.accentBright,
     borderColor: "#FFFFFF",
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+  },
+  orderText: {
+    fontFamily: typography.bodyBold,
+    fontSize: 13,
+    color: "#FFFFFF",
+    lineHeight: 14,
+    textAlign: "center",
   },
 });
