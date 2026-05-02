@@ -94,7 +94,9 @@ Plus on your dev machine:
 - **Node.js 20.19.4 or newer** (Expo SDK 54 requirement) — get from [nodejs.org](https://nodejs.org)
 - **Git** — [git-scm.com](https://git-scm.com)
 - **Firebase CLI** — installed automatically via `npx`
-- **Expo Go app** on your iPhone — [App Store](https://apps.apple.com/app/expo-go/id982107779)
+- **An Expo account** — sign up free at [expo.dev](https://expo.dev) (needed for EAS Build)
+
+> **Note:** This app uses `@rnmapbox/maps` which is a native iOS module not bundled in the standard Expo Go app. You'll build a custom development client via EAS Build (cloud-hosted, no Mac required, free tier covers 30 builds/month).
 
 ---
 
@@ -197,13 +199,28 @@ npx firebase deploy --only functions
 
 You should see `calculateRoute(us-central1)` deploy successfully.
 
-### 8. Run the app
+### 8. Build the iOS development client
+
+The app uses native Mapbox code, so it needs a custom dev build. EAS handles this in the cloud — no Mac required.
 
 ```bash
-npx expo start
+npm install -g eas-cli
+eas login                                    # log in with your Expo account
+eas build:configure                          # creates project on EAS (one-time)
+eas build --profile development --platform ios
 ```
 
-A QR code appears in your terminal. **Open Expo Go on your iPhone** (must be on the same Wi-Fi as your dev machine) and scan it. The app loads.
+The build takes ~15 minutes. When done, EAS gives you a QR code or install link. Open it on your iPhone — it'll prompt to install the dev client. Trust the developer in **Settings → General → VPN & Device Management** if iOS asks.
+
+### 9. Run the app
+
+```bash
+npx expo start --dev-client
+```
+
+Open the **dev client app** you just installed on your iPhone (NOT Expo Go) and tap the QR code or paste the URL. The app loads.
+
+> If you make changes that don't touch native code (UI, JS logic, screens), you don't need to rebuild — just `npx expo start --dev-client` and reload. Rebuild only when you add/upgrade native modules.
 
 ---
 
