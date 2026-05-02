@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, Alert } from "react-native";
 import MapboxGL from "@rnmapbox/maps";
 import { useRouter } from "expo-router";
@@ -28,6 +28,27 @@ const routingService = new RoutingService(
 const locationService = new LocationService();
 
 const MAX_WAYPOINTS = 25;
+const MAX_VISIBLE_MARKERS = 25;
+const MARKER_TYPES_SHOWN = ["turn", "exit", "ramp", "fork", "merge", "roundabout"];
+
+interface VisibleBounds {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+}
+
+function isCoordInBounds(
+  coord: { lat: number; lng: number },
+  bounds: VisibleBounds
+): boolean {
+  return (
+    coord.lat >= bounds.minLat &&
+    coord.lat <= bounds.maxLat &&
+    coord.lng >= bounds.minLng &&
+    coord.lng <= bounds.maxLng
+  );
+}
 
 export default function NavigationScreen() {
   const router = useRouter();
@@ -51,6 +72,56 @@ export default function NavigationScreen() {
   const undoLast = useWhatIfStore((s) => s.undoLast);
 
   const isWhatIfEnabled = useConnectionStore((s) => s.isWhatIfEnabled());
+
+  const mapRef = useRef<MapboxGL.MapView | null>(null);
+  const [visibleBounds, setVisibleBounds] = useState<VisibleBounds | null>(null);
+  const boundsUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const allManeuverSteps = useMemo(() => {
+    if (!activeRoute) return [];
+    return activeRoute.legs.flatMap((leg) =>
+      leg.steps.filter((step) =>
+        MARKER_TYPES_SHOWN.includes(step.maneuverType)
+      )
+    );
+  }, [activeRoute]);
+
+  const visibleSteps = useMemo(() => {
+    if (allManeuverSteps.length === 0) return [];
+    if (!visibleBounds) {
+      return allManeuverSteps.slice(0, MAX_VISIBLE_MARKERS);
+    }
+    const filtered = allManeuverSteps.filter((step) =>
+      isCoordInBounds(step.coordinate, visibleBounds)
+    );
+    return filtered.slice(0, MAX_VISIBLE_MARKERS);
+  }, [allManeuverSteps, visibleBounds]);
+
+  const handleCameraChanged = useCallback(async () => {
+    if (boundsUpdateTimer.current) clearTimeout(boundsUpdateTimer.current);
+    boundsUpdateTimer.current = setTimeout(async () => {
+      try {
+        if (!mapRef.current) return;
+        const bounds = await mapRef.current.getVisibleBounds();
+        if (!bounds || bounds.length < 2) return;
+        const [ne, sw] = bounds;
+        setVisibleBounds({
+          minLat: Math.min(ne[1], sw[1]),
+          maxLat: Math.max(ne[1], sw[1]),
+          minLng: Math.min(ne[0], sw[0]),
+          maxLng: Math.max(ne[0], sw[0]),
+        });
+      } catch {
+        // ignore — map may not be fully ready
+      }
+    }, 200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (boundsUpdateTimer.current) clearTimeout(boundsUpdateTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeRoute) return;
@@ -254,9 +325,12 @@ export default function NavigationScreen() {
   return (
     <View style={styles.container}>
       <MapboxGL.MapView
+        ref={mapRef}
         style={styles.map}
         styleURL={MapboxGL.StyleURL.Dark}
         onPress={handleMapPress}
+        onCameraChanged={handleCameraChanged}
+        onDidFinishLoadingMap={handleCameraChanged}
         compassEnabled={false}
         attributionEnabled={false}
         logoEnabled={false}
@@ -273,23 +347,15 @@ export default function NavigationScreen() {
           modifiedRoute={modifiedRoute?.coordinates}
         />
 
-        {/* Tappable maneuver markers (turns / exits) */}
-        {activeRoute.legs
-          .flatMap((leg) =>
-            leg.steps.filter((step) =>
-              ["turn", "exit", "ramp", "fork", "merge", "roundabout"].includes(
-                step.maneuverType
-              )
-            )
-          )
-          .map((step) => (
-            <ManeuverMarker
-              key={step.id}
-              step={step}
-              onPress={handleStepPress}
-              highlighted={whatIfWaypoints.some((wp) => wp.id === step.id)}
-            />
-          ))}
+        {/* Tappable maneuver markers — only render those in the visible viewport */}
+        {visibleSteps.map((step) => (
+          <ManeuverMarker
+            key={step.id}
+            step={step}
+            onPress={handleStepPress}
+            highlighted={whatIfWaypoints.some((wp) => wp.id === step.id)}
+          />
+        ))}
 
         {/* What-if waypoint pins */}
         {whatIfWaypoints.map((wp) => (
