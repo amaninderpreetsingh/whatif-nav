@@ -24,6 +24,13 @@ module.exports = {
           "WhatIf Nav needs background location access to continue navigation when the app is minimized.",
         UIBackgroundModes: ["location"],
         ITSAppUsesNonExemptEncryption: false,
+        CFBundleURLTypes: [
+          {
+            CFBundleURLSchemes: [
+              "com.googleusercontent.apps.343792154194-3dbtsstn609be1tac7thkmg1p16rt430",
+            ],
+          },
+        ],
       },
     },
     android: {
@@ -47,6 +54,7 @@ module.exports = {
         },
       ],
       "expo-font",
+      "expo-web-browser",
     ],
     extra: {
       router: {},

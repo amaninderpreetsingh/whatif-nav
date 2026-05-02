@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { signInWithEmail, signUpWithEmail } from "@/services/firebase/auth";
 import { createUserProfile } from "@/services/firebase/firestore";
+import { useGoogleSignIn } from "@/services/firebase/google-auth";
 import Toast from "react-native-toast-message";
 import { colors, radius, spacing, typography, shadows } from "@/theme";
 
@@ -29,6 +30,28 @@ export default function SignInScreen() {
   const [passwordFocused, setPasswordFocused] = useState(false);
 
   const buttonScale = useRef(new Animated.Value(1)).current;
+
+  const {
+    signIn: signInWithGoogle,
+    ready: googleReady,
+    signingIn: googleSigningIn,
+    error: googleError,
+  } = useGoogleSignIn();
+
+  useEffect(() => {
+    if (googleError) {
+      Toast.show({
+        type: "error",
+        text1: "Google sign-in failed",
+        text2: googleError,
+      });
+    }
+  }, [googleError]);
+
+  const handleGoogleSignIn = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await signInWithGoogle();
+  };
 
   const animatePress = (pressed: boolean) => {
     Animated.spring(buttonScale, {
@@ -119,6 +142,35 @@ export default function SignInScreen() {
               ? "Start exploring routes that fit your day"
               : "Pick up where you left off"}
           </Text>
+
+          {/* Google sign-in */}
+          <Pressable
+            onPress={handleGoogleSignIn}
+            disabled={!googleReady || googleSigningIn}
+            style={({ pressed }) => [
+              styles.googleButton,
+              pressed && styles.googleButtonPressed,
+              (!googleReady || googleSigningIn) && styles.googleButtonDisabled,
+            ]}
+          >
+            {googleSigningIn ? (
+              <ActivityIndicator color="#1a1a1a" />
+            ) : (
+              <>
+                <View style={styles.googleIconWrap}>
+                  <Text style={styles.googleIcon}>G</Text>
+                </View>
+                <Text style={styles.googleText}>Continue with Google</Text>
+              </>
+            )}
+          </Pressable>
+
+          {/* Divider */}
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.dividerLine} />
+          </View>
 
           {/* Email input */}
           <View
@@ -360,5 +412,61 @@ const styles = StyleSheet.create({
   toggleLink: {
     fontFamily: typography.bodyMed,
     color: colors.accentBright,
+  },
+  googleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.pill,
+    paddingVertical: spacing.md + 2,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    ...shadows.sm,
+  },
+  googleButtonPressed: {
+    backgroundColor: "#F1F5F9",
+  },
+  googleButtonDisabled: {
+    opacity: 0.5,
+  },
+  googleIconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: spacing.md,
+  },
+  googleIcon: {
+    fontFamily: typography.bodyBold,
+    fontSize: 16,
+    color: "#4285F4",
+    letterSpacing: -0.5,
+  },
+  googleText: {
+    fontFamily: typography.bodyBold,
+    fontSize: 15,
+    color: "#1a1a1a",
+    letterSpacing: -0.1,
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.lg,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.borderSubtle,
+  },
+  dividerText: {
+    fontFamily: typography.body,
+    fontSize: 12,
+    color: colors.textTertiary,
+    paddingHorizontal: spacing.md,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
   },
 });
