@@ -74,6 +74,7 @@ describe("MapboxRouteProvider", () => {
               { lat: 40.0, lng: -74.0 },
               { lat: 41.0, lng: -73.0 },
             ],
+            steps: [],
           },
         ],
         trafficLevel: "moderate",
@@ -83,5 +84,61 @@ describe("MapboxRouteProvider", () => {
     expect(route.coordinates).toHaveLength(3);
     expect(route.legs[0].startCoordinate.lat).toBe(40.0);
     expect(route.trafficLevel).toBe("moderate");
+    expect(route.legs[0].steps).toEqual([]);
+  });
+
+  it("normalizes step-level maneuver data on each leg", async () => {
+    mockCallable.mockResolvedValue({
+      data: {
+        provider: "mapbox",
+        coordinates: [
+          { lat: 40.0, lng: -74.0 },
+          { lat: 41.0, lng: -73.0 },
+        ],
+        duration: 1200,
+        distance: 8000,
+        legs: [
+          {
+            duration: 1200,
+            distance: 8000,
+            startLat: 40.0,
+            startLng: -74.0,
+            endLat: 41.0,
+            endLng: -73.0,
+            coordinates: [
+              { lat: 40.0, lng: -74.0 },
+              { lat: 41.0, lng: -73.0 },
+            ],
+            steps: [
+              {
+                id: "m-0-40.50000--73.50000",
+                coordinate: { lat: 40.5, lng: -73.5 },
+                maneuverType: "turn",
+                modifier: "right",
+                instruction: "Turn right onto Main St",
+                durationToHere: 60,
+                distanceToHere: 400,
+              },
+              {
+                id: "m-1-40.80000--73.20000",
+                coordinate: { lat: 40.8, lng: -73.2 },
+                maneuverType: "merge",
+                modifier: "left",
+                instruction: "Merge onto I-95",
+                durationToHere: 200,
+                distanceToHere: 1500,
+              },
+            ],
+          },
+        ],
+        trafficLevel: "moderate",
+      },
+    });
+    const route = await provider.getRoute(origin, dest);
+    expect(route.legs[0].steps).toHaveLength(2);
+    expect(route.legs[0].steps[0].maneuverType).toBe("turn");
+    expect(route.legs[0].steps[0].modifier).toBe("right");
+    expect(route.legs[0].steps[1].maneuverType).toBe("merge");
+    expect(route.legs[0].steps[1].instruction).toContain("I-95");
   });
 });

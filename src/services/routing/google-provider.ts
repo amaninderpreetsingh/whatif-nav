@@ -1,7 +1,26 @@
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase/config";
 import { decodeGooglePolyline } from "../../utils/polyline";
-import type { RouteProvider, Coordinate, NormalizedRoute, Leg, TrafficLevel } from "./types";
+import type {
+  RouteProvider,
+  Coordinate,
+  NormalizedRoute,
+  Leg,
+  Step,
+  TrafficLevel,
+  ManeuverType,
+  ManeuverModifier,
+} from "./types";
+
+interface CloudFunctionStep {
+  id: string;
+  coordinate: Coordinate;
+  maneuverType: ManeuverType;
+  modifier: ManeuverModifier;
+  instruction: string;
+  durationToHere: number;
+  distanceToHere: number;
+}
 
 interface CloudFunctionResponse {
   provider: "google";
@@ -16,6 +35,7 @@ interface CloudFunctionResponse {
     endLat: number;
     endLng: number;
     encodedPolyline: string;
+    steps?: CloudFunctionStep[];
   }[];
   trafficLevel: TrafficLevel;
 }
@@ -38,13 +58,28 @@ export class GoogleRouteProvider implements RouteProvider {
 
     const coordinates = decodeGooglePolyline(data.encodedPolyline);
 
-    const legs: Leg[] = data.legs.map((leg) => ({
-      startCoordinate: { lat: leg.startLat, lng: leg.startLng },
-      endCoordinate: { lat: leg.endLat, lng: leg.endLng },
-      duration: leg.duration,
-      distance: leg.distance,
-      coordinates: leg.encodedPolyline ? decodeGooglePolyline(leg.encodedPolyline) : [],
-    }));
+    const legs: Leg[] = data.legs.map((leg) => {
+      const steps: Step[] = (leg.steps || []).map((step) => ({
+        id: step.id,
+        coordinate: step.coordinate,
+        maneuverType: step.maneuverType,
+        modifier: step.modifier,
+        instruction: step.instruction,
+        durationToHere: step.durationToHere,
+        distanceToHere: step.distanceToHere,
+      }));
+
+      return {
+        startCoordinate: { lat: leg.startLat, lng: leg.startLng },
+        endCoordinate: { lat: leg.endLat, lng: leg.endLng },
+        duration: leg.duration,
+        distance: leg.distance,
+        coordinates: leg.encodedPolyline
+          ? decodeGooglePolyline(leg.encodedPolyline)
+          : [],
+        steps,
+      };
+    });
 
     return {
       coordinates,

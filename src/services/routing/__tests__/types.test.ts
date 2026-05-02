@@ -2,6 +2,9 @@ import type {
   Coordinate,
   NormalizedRoute,
   Leg,
+  Step,
+  ManeuverType,
+  ManeuverModifier,
   WhatIfWaypoint,
   WhatIfSession,
   RouteProvider,
@@ -25,9 +28,28 @@ describe("routing types", () => {
         { lat: 40.7128, lng: -74.006 },
         { lat: 40.758, lng: -73.9855 },
       ],
+      steps: [],
     };
     expect(leg.duration).toBe(600);
     expect(leg.coordinates).toHaveLength(2);
+    expect(leg.steps).toHaveLength(0);
+  });
+
+  it("Step has required fields", () => {
+    const maneuverType: ManeuverType = "turn";
+    const modifier: ManeuverModifier = "left";
+    const step: Step = {
+      id: "g-0-40.7128--74.006",
+      coordinate: { lat: 40.7128, lng: -74.006 },
+      maneuverType,
+      modifier,
+      instruction: "Turn left onto Oak St",
+      durationToHere: 30,
+      distanceToHere: 200,
+    };
+    expect(step.maneuverType).toBe("turn");
+    expect(step.modifier).toBe("left");
+    expect(step.instruction).toContain("Oak");
   });
 
   it("NormalizedRoute has all fields", () => {

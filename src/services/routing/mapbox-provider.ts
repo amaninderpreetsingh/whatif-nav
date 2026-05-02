@@ -1,6 +1,25 @@
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase/config";
-import type { RouteProvider, Coordinate, NormalizedRoute, Leg, TrafficLevel } from "./types";
+import type {
+  RouteProvider,
+  Coordinate,
+  NormalizedRoute,
+  Leg,
+  Step,
+  TrafficLevel,
+  ManeuverType,
+  ManeuverModifier,
+} from "./types";
+
+interface CloudFunctionStep {
+  id: string;
+  coordinate: Coordinate;
+  maneuverType: ManeuverType;
+  modifier: ManeuverModifier;
+  instruction: string;
+  durationToHere: number;
+  distanceToHere: number;
+}
 
 interface CloudFunctionResponse {
   provider: "mapbox";
@@ -15,6 +34,7 @@ interface CloudFunctionResponse {
     endLat: number;
     endLng: number;
     coordinates: Coordinate[];
+    steps?: CloudFunctionStep[];
   }[];
   trafficLevel: TrafficLevel;
 }
@@ -35,13 +55,26 @@ export class MapboxRouteProvider implements RouteProvider {
 
     const data = result.data as CloudFunctionResponse;
 
-    const legs: Leg[] = data.legs.map((leg) => ({
-      startCoordinate: { lat: leg.startLat, lng: leg.startLng },
-      endCoordinate: { lat: leg.endLat, lng: leg.endLng },
-      duration: leg.duration,
-      distance: leg.distance,
-      coordinates: leg.coordinates || [],
-    }));
+    const legs: Leg[] = data.legs.map((leg) => {
+      const steps: Step[] = (leg.steps || []).map((step) => ({
+        id: step.id,
+        coordinate: step.coordinate,
+        maneuverType: step.maneuverType,
+        modifier: step.modifier,
+        instruction: step.instruction,
+        durationToHere: step.durationToHere,
+        distanceToHere: step.distanceToHere,
+      }));
+
+      return {
+        startCoordinate: { lat: leg.startLat, lng: leg.startLng },
+        endCoordinate: { lat: leg.endLat, lng: leg.endLng },
+        duration: leg.duration,
+        distance: leg.distance,
+        coordinates: leg.coordinates || [],
+        steps,
+      };
+    });
 
     return {
       coordinates: data.coordinates,
