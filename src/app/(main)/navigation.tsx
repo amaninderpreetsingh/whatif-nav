@@ -6,6 +6,7 @@ import * as Haptics from "expo-haptics";
 import { v4 as uuidv4 } from "uuid";
 import { RouteOverlay } from "@/components/map/RouteOverlay";
 import { NavigationBottomSheet } from "@/components/navigation/BottomSheet";
+import { ConnectionBanner } from "@/components/common/ConnectionBanner";
 import { useNavigationStore } from "@/stores/navigation-store";
 import { useWhatIfStore } from "@/stores/whatif-store";
 import { useConnectionStore } from "@/stores/connection-store";
@@ -256,6 +257,7 @@ export default function NavigationScreen() {
         )}
       </MapboxGL.MapView>
 
+      <ConnectionBanner />
       <NavigationBottomSheet
         onAcceptRoute={handleAcceptRoute}
         onDiscardChanges={handleDiscardChanges}
