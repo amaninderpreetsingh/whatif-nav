@@ -3,7 +3,7 @@ import { View, StyleSheet, Alert } from "react-native";
 import MapboxGL from "@rnmapbox/maps";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { v4 as uuidv4 } from "uuid";
+import * as Crypto from "expo-crypto";
 import { RouteOverlay } from "@/components/map/RouteOverlay";
 import { NavigationBottomSheet } from "@/components/navigation/BottomSheet";
 import { ConnectionBanner } from "@/components/common/ConnectionBanner";
@@ -139,7 +139,7 @@ export default function NavigationScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const newWaypoint: WhatIfWaypoint = {
-      id: uuidv4(),
+      id: Crypto.randomUUID(),
       coordinate: tappedPoint,
       label: `Point ${whatIfWaypoints.length + 1}`,
       addedAt: Date.now(),
