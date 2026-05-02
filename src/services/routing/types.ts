@@ -3,12 +3,46 @@ export interface Coordinate {
   lng: number;
 }
 
+export type ManeuverType =
+  | "turn"
+  | "exit"
+  | "merge"
+  | "fork"
+  | "ramp"
+  | "roundabout"
+  | "continue"
+  | "depart"
+  | "arrive"
+  | "other";
+
+export type ManeuverModifier =
+  | "left"
+  | "sharp-left"
+  | "slight-left"
+  | "right"
+  | "sharp-right"
+  | "slight-right"
+  | "straight"
+  | "uturn"
+  | "none";
+
+export interface Step {
+  id: string;                    // unique within the route
+  coordinate: Coordinate;        // location of the maneuver
+  maneuverType: ManeuverType;
+  modifier: ManeuverModifier;
+  instruction: string;           // human-readable: "Turn left onto Oak St"
+  durationToHere: number;        // seconds from route start to this maneuver
+  distanceToHere: number;        // meters from route start
+}
+
 export interface Leg {
   startCoordinate: Coordinate;
   endCoordinate: Coordinate;
   duration: number; // seconds
   distance: number; // meters
   coordinates: Coordinate[]; // polyline points for this segment
+  steps: Step[];
 }
 
 export type TrafficLevel = "low" | "moderate" | "heavy";
