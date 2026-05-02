@@ -11,7 +11,10 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
-import { searchAddresses } from "@/services/geocoding/mapbox-geocoding";
+import {
+  searchAddresses,
+  fetchPlaceDetails,
+} from "@/services/geocoding/google-places";
 import type { GeocodingResult } from "@/services/geocoding/types";
 import type { Coordinate } from "@/services/routing/types";
 import { colors, radius, spacing, typography, shadows } from "@/theme";
@@ -79,12 +82,22 @@ export function AddressSearchInput({
     }, 300);
   };
 
-  const handleSelect = (result: GeocodingResult) => {
+  const handleSelect = async (result: GeocodingResult) => {
     Haptics.selectionAsync();
     setQuery(result.placeName);
     setResults([]);
     setFocused(false);
-    onSelect(result);
+    setLoading(true);
+    try {
+      // Google Places returns predictions without coordinates — fetch them now
+      const detailed = await fetchPlaceDetails(result.id);
+      setLoading(false);
+      onSelect(detailed);
+    } catch {
+      setLoading(false);
+      // Fall back to the prediction (no coords). Caller should handle gracefully.
+      onSelect(result);
+    }
   };
 
   const handleClear = () => {

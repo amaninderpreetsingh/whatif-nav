@@ -39,6 +39,7 @@ export default function HomeScreen() {
   const startNavigation = useNavigationStore((s) => s.startNavigation);
 
   const [currentLocation, setCurrentLocation] = useState<Coordinate | null>(null);
+  const [origin, setOrigin] = useState<GeocodingResult | null>(null);
   const [destination, setDestination] = useState<GeocodingResult | null>(null);
   const [previewRoute, setPreviewRoute] = useState<NormalizedRoute | null>(null);
   const [calculating, setCalculating] = useState(false);
@@ -84,50 +85,84 @@ export default function HomeScreen() {
     }).start();
   }, [previewRoute]);
 
+  // Effective origin coordinate: explicit override OR current GPS
+  const effectiveOriginCoord: Coordinate | null =
+    origin?.coordinate || currentLocation;
+
   // Fit camera to both points when route is set
   useEffect(() => {
-    if (previewRoute && currentLocation && destination && cameraRef.current) {
-      const bounds = {
-        ne: [
-          Math.max(currentLocation.lng, destination.coordinate.lng),
-          Math.max(currentLocation.lat, destination.coordinate.lat),
-        ],
-        sw: [
-          Math.min(currentLocation.lng, destination.coordinate.lng),
-          Math.min(currentLocation.lat, destination.coordinate.lat),
-        ],
-      };
-      cameraRef.current.fitBounds(bounds.ne, bounds.sw, [120, 80, 240, 80], 800);
+    if (
+      previewRoute &&
+      effectiveOriginCoord &&
+      destination &&
+      cameraRef.current
+    ) {
+      const ne: [number, number] = [
+        Math.max(effectiveOriginCoord.lng, destination.coordinate.lng),
+        Math.max(effectiveOriginCoord.lat, destination.coordinate.lat),
+      ];
+      const sw: [number, number] = [
+        Math.min(effectiveOriginCoord.lng, destination.coordinate.lng),
+        Math.min(effectiveOriginCoord.lat, destination.coordinate.lat),
+      ];
+      cameraRef.current.fitBounds(ne, sw, [120, 80, 240, 80], 800);
     }
   }, [previewRoute]);
 
-  const handleAddressSelect = async (result: GeocodingResult) => {
-    if (!currentLocation) {
+  // Recompute route whenever origin OR destination changes
+  useEffect(() => {
+    if (!effectiveOriginCoord || !destination) {
+      setPreviewRoute(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setCalculating(true);
+      try {
+        const route = await routingService.getRoute(
+          effectiveOriginCoord,
+          destination.coordinate
+        );
+        if (cancelled) return;
+        setPreviewRoute(route);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (err: any) {
+        if (cancelled) return;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Toast.show({
+          type: "error",
+          text1: "Couldn't calculate route",
+          text2: err.message,
+        });
+      } finally {
+        if (!cancelled) setCalculating(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    effectiveOriginCoord?.lat,
+    effectiveOriginCoord?.lng,
+    destination?.coordinate.lat,
+    destination?.coordinate.lng,
+  ]);
+
+  const handleOriginSelect = (result: GeocodingResult) => {
+    setOrigin(result);
+  };
+
+  const handleDestinationSelect = (result: GeocodingResult) => {
+    if (!effectiveOriginCoord) {
       Toast.show({ type: "error", text1: "Waiting for location..." });
       return;
     }
-
     setDestination(result);
-    setCalculating(true);
-    setPreviewRoute(null);
+  };
 
-    try {
-      const route = await routingService.getRoute(
-        currentLocation,
-        result.coordinate
-      );
-      setPreviewRoute(route);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch (err: any) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Toast.show({
-        type: "error",
-        text1: "Couldn't calculate route",
-        text2: err.message,
-      });
-    } finally {
-      setCalculating(false);
-    }
+  const handleClearOrigin = () => {
+    Haptics.selectionAsync();
+    setOrigin(null);
   };
 
   const handleClearDestination = () => {
@@ -146,9 +181,9 @@ export default function HomeScreen() {
   };
 
   const handleStartRoute = () => {
-    if (!previewRoute || !currentLocation || !destination) return;
+    if (!previewRoute || !effectiveOriginCoord || !destination) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    startNavigation(previewRoute, currentLocation, destination.coordinate);
+    startNavigation(previewRoute, effectiveOriginCoord, destination.coordinate);
     router.push("/(main)/navigation");
   };
 
@@ -242,17 +277,46 @@ export default function HomeScreen() {
         pointerEvents="none"
       />
 
-      {/* Search input - sits in safe area at top */}
+      {/* Search inputs (From + To) — sits in safe area at top */}
       <View style={[styles.searchContainer, { top: insets.top + spacing.md }]}>
-        <AddressSearchInput
-          placeholder="Where to?"
-          proximity={currentLocation || undefined}
-          onSelect={handleAddressSelect}
-        />
+        <View style={styles.fromInputWrap}>
+          <View style={styles.fromDot} />
+          <View style={styles.fromInputInner}>
+            <AddressSearchInput
+              placeholder="Your location"
+              proximity={currentLocation || undefined}
+              onSelect={handleOriginSelect}
+              initialValue={origin?.placeName ?? ""}
+            />
+          </View>
+          {origin && (
+            <Pressable
+              onPress={handleClearOrigin}
+              hitSlop={10}
+              style={styles.miniClear}
+            >
+              <Text style={styles.miniClearText}>×</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <View style={styles.connector} />
+
+        <View style={styles.toInputWrap}>
+          <View style={styles.toFlag} />
+          <View style={styles.toInputInner}>
+            <AddressSearchInput
+              placeholder="Where to?"
+              proximity={effectiveOriginCoord || undefined}
+              onSelect={handleDestinationSelect}
+              initialValue={destination?.placeName ?? ""}
+            />
+          </View>
+        </View>
       </View>
 
       {/* Side action chips */}
-      <View style={[styles.sideActions, { top: insets.top + 90 }]}>
+      <View style={[styles.sideActions, { top: insets.top + 180 }]}>
         <Pressable
           onPress={() => {
             Haptics.selectionAsync();
@@ -383,6 +447,54 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: spacing.lg,
     right: spacing.lg,
+  },
+  fromInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  toInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  fromDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.textSecondary,
+    borderWidth: 2,
+    borderColor: colors.bgPrimary,
+    marginRight: spacing.sm,
+  },
+  toFlag: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: colors.accent,
+    marginRight: spacing.sm,
+  },
+  fromInputInner: { flex: 1 },
+  toInputInner: { flex: 1 },
+  connector: {
+    width: 2,
+    height: 14,
+    backgroundColor: colors.borderMedium,
+    marginLeft: 4,
+    marginVertical: 2,
+  },
+  miniClear: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(148, 163, 184, 0.15)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: spacing.sm,
+  },
+  miniClearText: {
+    fontFamily: typography.body,
+    fontSize: 16,
+    color: colors.textSecondary,
+    lineHeight: 17,
   },
   sideActions: { position: "absolute", right: spacing.lg },
   chip: {
