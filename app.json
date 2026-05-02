@@ -1,30 +1,42 @@
 {
   "expo": {
-    "name": "whatif-nav",
+    "name": "WhatIf Nav",
     "slug": "whatif-nav",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "userInterfaceStyle": "automatic",
+    "scheme": "whatif-nav",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1a1a2e"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.whatifnav.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "WhatIf Nav needs your location to provide navigation.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "WhatIf Nav needs background location access to continue navigation when the app is minimized.",
+        "UIBackgroundModes": ["location"]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#1a1a2e"
       },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "package": "com.whatifnav.app"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "plugins": [
+      "expo-router",
+      "expo-location",
+      [
+        "@rnmapbox/maps",
+        {
+          "RNMapboxMapsDownloadToken": "YOUR_MAPBOX_SECRET_TOKEN"
+        }
+      ]
+    ]
   }
 }
