@@ -18,7 +18,9 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "WhatIf Nav needs your location to provide navigation.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "WhatIf Nav needs background location access to continue navigation when the app is minimized.",
-        "UIBackgroundModes": ["location"]
+        "UIBackgroundModes": [
+          "location"
+        ]
       }
     },
     "android": {
@@ -36,7 +38,8 @@
         {
           "RNMapboxMapsDownloadToken": "YOUR_MAPBOX_SECRET_TOKEN"
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }
