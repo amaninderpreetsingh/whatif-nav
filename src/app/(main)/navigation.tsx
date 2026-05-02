@@ -323,33 +323,19 @@ export default function NavigationScreen() {
 
   const handleEndRoute = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert(
-      "End route?",
-      "You can save this route for next time.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "End without saving",
-          style: "destructive",
-          onPress: () => {
-            locationService.stopTracking();
-            endWhatIf();
-            stopNavigation();
-            router.replace("/(main)");
-          },
+    Alert.alert("End route?", undefined, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "End",
+        style: "destructive",
+        onPress: () => {
+          locationService.stopTracking();
+          endWhatIf();
+          stopNavigation();
+          router.replace("/(main)");
         },
-        {
-          text: "Save & end",
-          onPress: () => {
-            locationService.stopTracking();
-            endWhatIf();
-            // route-summary screen has the save form; it reads from navigationStore
-            // and clears state when done
-            router.replace("/(main)/route-summary");
-          },
-        },
-      ]
-    );
+      },
+    ]);
   };
 
   if (!activeRoute) {
