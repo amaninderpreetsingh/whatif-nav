@@ -1,27 +1,28 @@
-import { useRef, useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   View,
-  TextInput,
+  Text,
   StyleSheet,
   Pressable,
-  Text,
   Animated,
-  Dimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapboxGL from "@rnmapbox/maps";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
+import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useNavigationStore } from "@/stores/navigation-store";
 import { RoutingService } from "@/services/routing/routing-service";
 import { GoogleRouteProvider } from "@/services/routing/google-provider";
 import { MapboxRouteProvider } from "@/services/routing/mapbox-provider";
+import { AddressSearchInput } from "@/components/search/AddressSearchInput";
+import { coordinatesToGeoJSON } from "@/utils/polyline";
 import Toast from "react-native-toast-message";
-import type { Coordinate } from "@/services/routing/types";
+import type { Coordinate, NormalizedRoute } from "@/services/routing/types";
+import type { GeocodingResult } from "@/services/geocoding/types";
 import { colors, radius, spacing, typography, shadows } from "@/theme";
-import { DEFAULT_MAP_STYLE, DEFAULT_CAMERA } from "@/components/map/MapboxStyle";
 
 MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN || "");
 
@@ -30,85 +31,109 @@ const routingService = new RoutingService(
   new MapboxRouteProvider()
 );
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const DEFAULT_CENTER: Coordinate = { lat: 40.7128, lng: -74.006 };
 
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [searchText, setSearchText] = useState("");
-  const [destination, setDestination] = useState<Coordinate | null>(null);
-  const [destinationAddress, setDestinationAddress] = useState("");
-  const [loading, setLoading] = useState(false);
   const startNavigation = useNavigationStore((s) => s.startNavigation);
-  const cameraRef = useRef<MapboxGL.Camera>(null);
 
-  const cardTranslateY = useRef(new Animated.Value(200)).current;
-  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const [currentLocation, setCurrentLocation] = useState<Coordinate | null>(null);
+  const [destination, setDestination] = useState<GeocodingResult | null>(null);
+  const [previewRoute, setPreviewRoute] = useState<NormalizedRoute | null>(null);
+  const [calculating, setCalculating] = useState(false);
+
+  const cameraRef = useRef<MapboxGL.Camera>(null);
+  const cardSlide = useRef(new Animated.Value(200)).current;
   const goButtonScale = useRef(new Animated.Value(1)).current;
 
-  // Animate destination card in/out
+  // Get current location on mount
   useEffect(() => {
-    if (destination) {
-      Animated.parallel([
-        Animated.spring(cardTranslateY, {
-          toValue: 0,
-          useNativeDriver: true,
-          tension: 120,
-          friction: 12,
-        }),
-        Animated.timing(cardOpacity, {
-          toValue: 1,
-          duration: 220,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(cardTranslateY, {
-          toValue: 200,
-          duration: 220,
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardOpacity, {
-          toValue: 0,
-          duration: 180,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [destination]);
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Toast.show({
+          type: "info",
+          text1: "Location permission denied",
+          text2: "Using New York as default location",
+        });
+        setCurrentLocation(DEFAULT_CENTER);
+        return;
+      }
+      try {
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        setCurrentLocation({
+          lat: loc.coords.latitude,
+          lng: loc.coords.longitude,
+        });
+      } catch {
+        setCurrentLocation(DEFAULT_CENTER);
+      }
+    })();
+  }, []);
 
-  const handleMapPress = (event: any) => {
-    const { geometry } = event;
-    if (geometry?.coordinates) {
-      const [lng, lat] = geometry.coordinates;
-      Haptics.selectionAsync();
-      setDestination({ lat, lng });
-      setDestinationAddress(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-    }
-  };
+  // Animate bottom card when preview route shows
+  useEffect(() => {
+    Animated.spring(cardSlide, {
+      toValue: previewRoute ? 0 : 200,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 12,
+    }).start();
+  }, [previewRoute]);
 
-  const handleStartRoute = async () => {
-    if (!destination) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setLoading(true);
+  // Fit camera to both points when route is set
+  useEffect(() => {
+    if (previewRoute && currentLocation && destination && cameraRef.current) {
+      const bounds = {
+        ne: [
+          Math.max(currentLocation.lng, destination.coordinate.lng),
+          Math.max(currentLocation.lat, destination.coordinate.lat),
+        ],
+        sw: [
+          Math.min(currentLocation.lng, destination.coordinate.lng),
+          Math.min(currentLocation.lat, destination.coordinate.lat),
+        ],
+      };
+      cameraRef.current.fitBounds(bounds.ne, bounds.sw, [120, 80, 240, 80], 800);
+    }
+  }, [previewRoute]);
+
+  const handleAddressSelect = async (result: GeocodingResult) => {
+    if (!currentLocation) {
+      Toast.show({ type: "error", text1: "Waiting for location..." });
+      return;
+    }
+
+    setDestination(result);
+    setCalculating(true);
+    setPreviewRoute(null);
 
     try {
-      const origin: Coordinate = { lat: 40.7128, lng: -74.006 };
-      const route = await routingService.getRoute(origin, destination);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      startNavigation(route, origin, destination);
-      router.push("/(main)/navigation");
+      const route = await routingService.getRoute(
+        currentLocation,
+        result.coordinate
+      );
+      setPreviewRoute(route);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (err: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Toast.show({
         type: "error",
-        text1: "Could not calculate route",
+        text1: "Couldn't calculate route",
         text2: err.message,
       });
     } finally {
-      setLoading(false);
+      setCalculating(false);
     }
+  };
+
+  const handleClearDestination = () => {
+    Haptics.selectionAsync();
+    setDestination(null);
+    setPreviewRoute(null);
   };
 
   const animateGoPress = (pressed: boolean) => {
@@ -120,129 +145,178 @@ export default function HomeScreen() {
     }).start();
   };
 
-  const clearDestination = () => {
-    Haptics.selectionAsync();
-    setDestination(null);
-    setDestinationAddress("");
+  const handleStartRoute = () => {
+    if (!previewRoute || !currentLocation || !destination) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    startNavigation(previewRoute, currentLocation, destination.coordinate);
+    router.push("/(main)/navigation");
   };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.round(seconds / 60);
+    if (mins < 60) return `${mins} min`;
+    const hrs = Math.floor(mins / 60);
+    return `${hrs}h ${mins % 60}m`;
+  };
+
+  const formatDistance = (meters: number) => {
+    if (meters < 1000) return `${Math.round(meters)} m`;
+    return `${(meters / 1000).toFixed(1)} km`;
+  };
+
+  const center = currentLocation || DEFAULT_CENTER;
 
   return (
     <View style={styles.container}>
       <MapboxGL.MapView
         style={styles.map}
-        styleURL={DEFAULT_MAP_STYLE}
-        onPress={handleMapPress}
+        styleURL={MapboxGL.StyleURL.Dark}
         compassEnabled={false}
         attributionEnabled={false}
         logoEnabled={false}
       >
         <MapboxGL.Camera
           ref={cameraRef}
-          zoomLevel={DEFAULT_CAMERA.zoomLevel}
-          centerCoordinate={DEFAULT_CAMERA.centerCoordinate}
-          animationDuration={DEFAULT_CAMERA.animationDuration}
+          zoomLevel={14}
+          centerCoordinate={[center.lng, center.lat]}
+          animationDuration={500}
         />
 
+        {/* Current location pin */}
+        {currentLocation && (
+          <MapboxGL.PointAnnotation
+            id="current-location"
+            coordinate={[currentLocation.lng, currentLocation.lat]}
+          >
+            <View style={styles.currentPin}>
+              <View style={styles.currentPinDot} />
+            </View>
+          </MapboxGL.PointAnnotation>
+        )}
+
+        {/* Destination pin */}
         {destination && (
           <MapboxGL.PointAnnotation
             id="destination"
-            coordinate={[destination.lng, destination.lat]}
+            coordinate={[destination.coordinate.lng, destination.coordinate.lat]}
           >
-            <View style={styles.markerOuter}>
-              <View style={styles.markerMid}>
-                <View style={styles.markerCore} />
+            <View style={styles.destPin}>
+              <View style={styles.destPinInner}>
+                <View style={styles.destPinCore} />
               </View>
             </View>
           </MapboxGL.PointAnnotation>
         )}
+
+        {/* Preview route */}
+        {previewRoute && (
+          <MapboxGL.ShapeSource
+            id="preview-route"
+            shape={{
+              type: "Feature",
+              geometry: coordinatesToGeoJSON(previewRoute.coordinates),
+              properties: {},
+            }}
+          >
+            <MapboxGL.LineLayer
+              id="preview-route-glow"
+              style={{
+                lineColor: colors.accent,
+                lineWidth: 14,
+                lineCap: "round",
+                lineJoin: "round",
+                lineOpacity: 0.25,
+                lineBlur: 6,
+              }}
+            />
+            <MapboxGL.LineLayer
+              id="preview-route-line"
+              style={{
+                lineColor: colors.accentBright,
+                lineWidth: 6,
+                lineCap: "round",
+                lineJoin: "round",
+              }}
+            />
+          </MapboxGL.ShapeSource>
+        )}
       </MapboxGL.MapView>
 
-      {/* Top fade gradient for status bar legibility */}
       <LinearGradient
         colors={["rgba(10, 14, 26, 0.85)", "transparent"]}
-        style={[styles.topFade, { height: insets.top + 100 }]}
+        style={[styles.topFade, { height: insets.top + 200 }]}
         pointerEvents="none"
       />
 
-      {/* Floating glassmorphic search bar */}
+      {/* Search input - sits in safe area at top */}
       <View style={[styles.searchContainer, { top: insets.top + spacing.md }]}>
-        <BlurView intensity={60} tint="dark" style={styles.searchBlur}>
-          <View style={styles.searchInner}>
-            <View style={styles.searchIcon}>
-              <View style={styles.searchIconRing} />
-              <View style={styles.searchIconHandle} />
-            </View>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Where to?"
-              placeholderTextColor={colors.textTertiary}
-              value={searchText}
-              onChangeText={setSearchText}
-            />
-          </View>
-        </BlurView>
+        <AddressSearchInput
+          placeholder="Where to?"
+          proximity={currentLocation || undefined}
+          onSelect={handleAddressSelect}
+        />
       </View>
 
       {/* Side action chips */}
-      <View
-        style={[
-          styles.sideActions,
-          { top: insets.top + 90 },
-        ]}
-      >
+      <View style={[styles.sideActions, { top: insets.top + 90 }]}>
         <Pressable
-          style={({ pressed }) => [
-            styles.chip,
-            pressed && styles.chipPressed,
-          ]}
           onPress={() => {
             Haptics.selectionAsync();
             router.push("/(main)/saved-routes");
           }}
         >
-          <BlurView intensity={50} tint="dark" style={styles.chipBlur}>
+          <BlurView
+            intensity={50}
+            tint="dark"
+            style={[styles.chip, styles.chipBlur]}
+          >
             <Text style={styles.chipText}>Saved</Text>
           </BlurView>
         </Pressable>
-
+        <View style={{ height: spacing.sm }} />
         <Pressable
-          style={({ pressed }) => [
-            styles.chip,
-            pressed && styles.chipPressed,
-          ]}
           onPress={() => {
             Haptics.selectionAsync();
             router.push("/(main)/settings");
           }}
         >
-          <BlurView intensity={50} tint="dark" style={styles.chipBlur}>
+          <BlurView
+            intensity={50}
+            tint="dark"
+            style={[styles.chip, styles.chipBlur]}
+          >
             <Text style={styles.chipText}>Settings</Text>
           </BlurView>
         </Pressable>
       </View>
 
-      {/* Destination card */}
-      {destination && (
+      {/* Bottom preview card */}
+      {(destination || calculating) && (
         <Animated.View
           style={[
-            styles.destCard,
+            styles.previewCard,
             {
               bottom: insets.bottom + spacing.xl,
-              transform: [{ translateY: cardTranslateY }],
-              opacity: cardOpacity,
+              transform: [{ translateY: cardSlide }],
             },
           ]}
         >
-          <BlurView intensity={80} tint="dark" style={styles.destBlur}>
-            <View style={styles.destInner}>
-              <View style={styles.destInfo}>
-                <Text style={styles.destLabel}>Destination</Text>
-                <Text style={styles.destAddress}>{destinationAddress}</Text>
-              </View>
-
-              <View style={styles.destActions}>
+          <BlurView intensity={80} tint="dark" style={styles.previewBlur}>
+            <View style={styles.previewInner}>
+              <View style={styles.previewHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.previewLabel}>Destination</Text>
+                  <Text style={styles.previewName} numberOfLines={1}>
+                    {destination?.text || "..."}
+                  </Text>
+                  {destination?.context && (
+                    <Text style={styles.previewContext} numberOfLines={1}>
+                      {destination.context}
+                    </Text>
+                  )}
+                </View>
                 <Pressable
-                  onPress={clearDestination}
+                  onPress={handleClearDestination}
                   style={({ pressed }) => [
                     styles.clearButton,
                     pressed && styles.clearButtonPressed,
@@ -250,28 +324,55 @@ export default function HomeScreen() {
                 >
                   <Text style={styles.clearText}>×</Text>
                 </Pressable>
-
-                <Animated.View style={{ transform: [{ scale: goButtonScale }] }}>
-                  <Pressable
-                    onPress={handleStartRoute}
-                    onPressIn={() => animateGoPress(true)}
-                    onPressOut={() => animateGoPress(false)}
-                    disabled={loading}
-                    style={styles.goButton}
-                  >
-                    <LinearGradient
-                      colors={[colors.accentBright, colors.accent]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.goGradient}
-                    >
-                      <Text style={styles.goText}>
-                        {loading ? "..." : "Start"}
-                      </Text>
-                    </LinearGradient>
-                  </Pressable>
-                </Animated.View>
               </View>
+
+              {previewRoute && (
+                <View style={styles.previewStats}>
+                  <View style={styles.statBlock}>
+                    <Text style={styles.statValue}>
+                      {formatDuration(previewRoute.duration)}
+                    </Text>
+                    <Text style={styles.statLabel}>duration</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statBlock}>
+                    <Text style={styles.statValue}>
+                      {formatDistance(previewRoute.distance)}
+                    </Text>
+                    <Text style={styles.statLabel}>distance</Text>
+                  </View>
+                </View>
+              )}
+
+              <Animated.View style={{ transform: [{ scale: goButtonScale }] }}>
+                <Pressable
+                  onPress={handleStartRoute}
+                  onPressIn={() => animateGoPress(true)}
+                  onPressOut={() => animateGoPress(false)}
+                  disabled={calculating || !previewRoute}
+                  style={styles.goButton}
+                >
+                  <LinearGradient
+                    colors={
+                      previewRoute
+                        ? [colors.accentBright, colors.accent]
+                        : [colors.bgSecondary, colors.bgSecondary]
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.goGradient}
+                  >
+                    <Text
+                      style={[
+                        styles.goText,
+                        !previewRoute && styles.goTextDim,
+                      ]}
+                    >
+                      {calculating ? "Calculating..." : previewRoute ? "Start" : "..."}
+                    </Text>
+                  </LinearGradient>
+                </Pressable>
+              </Animated.View>
             </View>
           </BlurView>
         </Animated.View>
@@ -283,116 +384,71 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   map: { flex: 1 },
-  topFade: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-  },
-  // Search bar (top, glassmorphic)
+  topFade: { position: "absolute", top: 0, left: 0, right: 0 },
   searchContainer: {
     position: "absolute",
     left: spacing.lg,
     right: spacing.lg,
-    borderRadius: radius.pill,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: colors.borderMedium,
-    ...shadows.md,
   },
-  searchBlur: {
-    overflow: "hidden",
-  },
-  searchInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: "rgba(20, 25, 40, 0.4)",
-  },
-  searchIcon: {
-    width: 18,
-    height: 18,
-    marginRight: spacing.md,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  searchIconRing: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 1.8,
-    borderColor: colors.textSecondary,
-  },
-  searchIconHandle: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 6,
-    height: 1.8,
-    backgroundColor: colors.textSecondary,
-    transform: [{ rotate: "45deg" }],
-  },
-  searchInput: {
-    flex: 1,
-    fontFamily: typography.body,
-    fontSize: 16,
-    color: colors.textPrimary,
-    letterSpacing: -0.2,
-  },
-  // Side action chips
-  sideActions: {
-    position: "absolute",
-    right: spacing.lg,
-    gap: spacing.sm,
-  },
+  sideActions: { position: "absolute", right: spacing.lg },
   chip: {
     borderRadius: radius.pill,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.borderMedium,
-    ...shadows.sm,
   },
-  chipPressed: { opacity: 0.7 },
   chipBlur: {
-    overflow: "hidden",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: "rgba(20, 25, 40, 0.4)",
   },
   chipText: {
     fontFamily: typography.bodyMed,
     fontSize: 13,
     color: colors.textPrimary,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    backgroundColor: "rgba(20, 25, 40, 0.4)",
     letterSpacing: -0.1,
   },
-  // Destination marker
-  markerOuter: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.accentGlow,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  markerMid: {
+  currentPin: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: "rgba(59, 130, 246, 0.4)",
+    backgroundColor: "rgba(59, 130, 246, 0.25)",
     justifyContent: "center",
     alignItems: "center",
   },
-  markerCore: {
+  currentPinDot: {
     width: 14,
     height: 14,
     borderRadius: 7,
     backgroundColor: colors.accent,
+    borderWidth: 2.5,
+    borderColor: colors.textPrimary,
+  },
+  destPin: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(59, 130, 246, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  destPinInner: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(59, 130, 246, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  destPinCore: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.accent,
     borderWidth: 2,
     borderColor: colors.textPrimary,
   },
-  // Destination card
-  destCard: {
+  previewCard: {
     position: "absolute",
     left: spacing.lg,
     right: spacing.lg,
@@ -402,17 +458,17 @@ const styles = StyleSheet.create({
     borderColor: colors.borderMedium,
     ...shadows.lg,
   },
-  destBlur: {
-    overflow: "hidden",
-  },
-  destInner: {
+  previewBlur: { overflow: "hidden" },
+  previewInner: {
     padding: spacing.lg,
-    backgroundColor: "rgba(20, 25, 40, 0.55)",
+    backgroundColor: "rgba(20, 25, 40, 0.65)",
   },
-  destInfo: {
+  previewHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
     marginBottom: spacing.md,
   },
-  destLabel: {
+  previewLabel: {
     fontFamily: typography.bodyMed,
     fontSize: 11,
     color: colors.textTertiary,
@@ -420,33 +476,61 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: spacing.xs,
   },
-  destAddress: {
+  previewName: {
     fontFamily: typography.displayMed,
     fontSize: 18,
     color: colors.textPrimary,
     letterSpacing: -0.4,
   },
-  destActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  previewContext: {
+    fontFamily: typography.body,
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   clearButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: "rgba(148, 163, 184, 0.08)",
     justifyContent: "center",
     alignItems: "center",
+    marginLeft: spacing.md,
   },
-  clearButtonPressed: {
-    backgroundColor: "rgba(148, 163, 184, 0.16)",
-  },
+  clearButtonPressed: { backgroundColor: "rgba(148, 163, 184, 0.16)" },
   clearText: {
     fontFamily: typography.body,
-    fontSize: 24,
+    fontSize: 22,
     color: colors.textSecondary,
-    lineHeight: 26,
+    lineHeight: 24,
+  },
+  previewStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(20, 25, 40, 0.45)",
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  statBlock: { flex: 1, alignItems: "center" },
+  statValue: {
+    fontFamily: typography.display,
+    fontSize: 22,
+    color: colors.accentBright,
+    letterSpacing: -0.6,
+  },
+  statLabel: {
+    fontFamily: typography.bodyMed,
+    fontSize: 10,
+    color: colors.textTertiary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: colors.borderSubtle,
   },
   goButton: {
     borderRadius: radius.pill,
@@ -454,9 +538,7 @@ const styles = StyleSheet.create({
     ...shadows.glow,
   },
   goGradient: {
-    paddingHorizontal: spacing.xxl,
     paddingVertical: spacing.md,
-    minWidth: 100,
     alignItems: "center",
   },
   goText: {
@@ -465,4 +547,5 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     letterSpacing: -0.1,
   },
+  goTextDim: { color: colors.textTertiary },
 });
