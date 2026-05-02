@@ -9,6 +9,8 @@ WebBrowser.maybeCompleteAuthSession();
 
 const WEB_CLIENT_ID =
   "343792154194-3dbtsstn609be1tac7thkmg1p16rt430.apps.googleusercontent.com";
+const IOS_CLIENT_ID =
+  "343792154194-aeh4v5a2u08nc494sdihq8eq1i6e3049.apps.googleusercontent.com";
 
 export function useGoogleSignIn() {
   const [signingIn, setSigningIn] = useState(false);
@@ -16,7 +18,7 @@ export function useGoogleSignIn() {
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     webClientId: WEB_CLIENT_ID,
-    iosClientId: WEB_CLIENT_ID,
+    iosClientId: IOS_CLIENT_ID,
     scopes: ["profile", "email"],
   });
 

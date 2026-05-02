@@ -27,7 +27,7 @@ module.exports = {
         CFBundleURLTypes: [
           {
             CFBundleURLSchemes: [
-              "com.googleusercontent.apps.343792154194-3dbtsstn609be1tac7thkmg1p16rt430",
+              "com.googleusercontent.apps.343792154194-aeh4v5a2u08nc494sdihq8eq1i6e3049",
             ],
           },
         ],
