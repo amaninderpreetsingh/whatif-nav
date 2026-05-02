@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as Crypto from "expo-crypto";
 import { RouteOverlay } from "@/components/map/RouteOverlay";
+import { ManeuverMarker } from "@/components/map/ManeuverMarker";
 import { NavigationBottomSheet } from "@/components/navigation/BottomSheet";
 import { ConnectionBanner } from "@/components/common/ConnectionBanner";
 import { useNavigationStore } from "@/stores/navigation-store";
@@ -16,7 +17,7 @@ import { MapboxRouteProvider } from "@/services/routing/mapbox-provider";
 import { LocationService } from "@/services/location/location-service";
 import { insertWaypointAtCorrectPosition } from "@/utils/polyline";
 import { debounce } from "@/utils/debounce";
-import type { Coordinate, WhatIfWaypoint } from "@/services/routing/types";
+import type { Coordinate, Step, WhatIfWaypoint } from "@/services/routing/types";
 import Toast from "react-native-toast-message";
 import { colors } from "@/theme";
 
@@ -156,6 +157,47 @@ export default function NavigationScreen() {
     debouncedRecalculate(updatedWaypoints);
   };
 
+  const handleStepPress = (step: Step) => {
+    if (!isWhatIfEnabled || !activeRoute) return;
+
+    if (!isWhatIfActive) {
+      startWhatIf(activeRoute);
+    }
+
+    if (whatIfWaypoints.length >= MAX_WAYPOINTS) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Toast.show({
+        type: "error",
+        text1: "Maximum route points reached",
+      });
+      return;
+    }
+
+    // Don't add the same step twice
+    if (whatIfWaypoints.some((wp) => wp.id === step.id)) {
+      return;
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const newWaypoint: WhatIfWaypoint = {
+      id: step.id,
+      coordinate: step.coordinate,
+      label: step.instruction || `${step.maneuverType} ${step.modifier}`.trim(),
+      addedAt: Date.now(),
+      index: 0,
+    };
+
+    const updatedWaypoints = insertWaypointAtCorrectPosition(
+      newWaypoint,
+      whatIfWaypoints,
+      activeRoute.coordinates
+    );
+
+    setWaypoints(updatedWaypoints);
+    debouncedRecalculate(updatedWaypoints);
+  };
+
   const handleAcceptRoute = () => {
     if (!modifiedRoute) return;
     Alert.alert(
@@ -230,6 +272,24 @@ export default function NavigationScreen() {
           activeRoute={activeRoute.coordinates}
           modifiedRoute={modifiedRoute?.coordinates}
         />
+
+        {/* Tappable maneuver markers (turns / exits) */}
+        {activeRoute.legs
+          .flatMap((leg) =>
+            leg.steps.filter((step) =>
+              ["turn", "exit", "ramp", "fork", "merge", "roundabout"].includes(
+                step.maneuverType
+              )
+            )
+          )
+          .map((step) => (
+            <ManeuverMarker
+              key={step.id}
+              step={step}
+              onPress={handleStepPress}
+              highlighted={whatIfWaypoints.some((wp) => wp.id === step.id)}
+            />
+          ))}
 
         {/* What-if waypoint pins */}
         {whatIfWaypoints.map((wp) => (
