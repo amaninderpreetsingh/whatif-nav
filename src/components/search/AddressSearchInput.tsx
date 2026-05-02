@@ -87,6 +87,15 @@ export function AddressSearchInput({
     onSelect(result);
   };
 
+  const handleClear = () => {
+    Haptics.selectionAsync();
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    requestId.current++;
+    setQuery("");
+    setResults([]);
+    setLoading(false);
+  };
+
   const dropdownTranslate = dropdownAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [-8, 0],
@@ -116,13 +125,24 @@ export function AddressSearchInput({
             autoCorrect={false}
             autoCapitalize="none"
           />
-          {loading && (
+          {loading ? (
             <ActivityIndicator
               size="small"
               color={colors.accent}
               style={styles.loading}
             />
-          )}
+          ) : query.length > 0 ? (
+            <Pressable
+              onPress={handleClear}
+              hitSlop={10}
+              style={({ pressed }) => [
+                styles.clearButton,
+                pressed && styles.clearButtonPressed,
+              ]}
+            >
+              <Text style={styles.clearText}>×</Text>
+            </Pressable>
+          ) : null}
         </View>
       </BlurView>
 
@@ -225,6 +245,23 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   loading: { marginLeft: spacing.sm },
+  clearButton: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(148, 163, 184, 0.15)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: spacing.sm,
+  },
+  clearButtonPressed: { backgroundColor: "rgba(148, 163, 184, 0.28)" },
+  clearText: {
+    fontFamily: typography.body,
+    fontSize: 16,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    textAlign: "center",
+  },
   dropdown: {
     marginTop: spacing.sm,
     borderRadius: radius.xl,
