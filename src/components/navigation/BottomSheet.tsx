@@ -1,12 +1,15 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import GorhomBottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
+import Toast from "react-native-toast-message";
 import { ComparisonBar } from "./ComparisonBar";
 import { useWhatIfStore } from "@/stores/whatif-store";
 import { useNavigationStore } from "@/stores/navigation-store";
 import { useConnectionStore } from "@/stores/connection-store";
+import { getCurrentUser } from "@/services/firebase/auth";
+import { saveRoute } from "@/services/firebase/firestore";
 import { colors, radius, spacing, typography, shadows } from "@/theme";
 
 interface Props {
@@ -27,6 +30,11 @@ export function NavigationBottomSheet({
 
   const remainingDuration = useNavigationStore((s) => s.remainingDuration);
   const remainingDistance = useNavigationStore((s) => s.remainingDistance);
+  const activeRoute = useNavigationStore((s) => s.activeRoute);
+  const origin = useNavigationStore((s) => s.origin);
+  const destination = useNavigationStore((s) => s.destination);
+
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
   const isWhatIfActive = useWhatIfStore((s) => s.isActive);
   const originalRoute = useWhatIfStore((s) => s.originalRoute);
@@ -54,6 +62,57 @@ export function NavigationBottomSheet({
 
   const tapHaptic = () => Haptics.selectionAsync();
 
+  const handleSave = async () => {
+    if (saveState !== "idle") return;
+    const user = getCurrentUser();
+    if (!user || !activeRoute || !origin || !destination) {
+      Toast.show({ type: "error", text1: "Can't save — missing route data" });
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSaveState("saving");
+    try {
+      await saveRoute({
+        userId: user.uid,
+        name: `Route ${new Date().toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })}`,
+        origin: {
+          lat: origin.lat,
+          lng: origin.lng,
+          address: `${origin.lat.toFixed(4)}, ${origin.lng.toFixed(4)}`,
+        },
+        destination: {
+          lat: destination.lat,
+          lng: destination.lng,
+          address: `${destination.lat.toFixed(4)}, ${destination.lng.toFixed(4)}`,
+        },
+        waypoints: waypoints.map((wp) => ({
+          lat: wp.coordinate.lat,
+          lng: wp.coordinate.lng,
+          label: wp.label,
+        })),
+        estimatedTime: Math.round(activeRoute.duration / 60),
+        distance: activeRoute.distance,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Toast.show({ type: "success", text1: "Route saved" });
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 2000);
+    } catch (err: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Toast.show({
+        type: "error",
+        text1: "Failed to save route",
+        text2: err?.message,
+      });
+      setSaveState("idle");
+    }
+  };
+
   return (
     <GorhomBottomSheet
       ref={sheetRef}
@@ -77,6 +136,29 @@ export function NavigationBottomSheet({
               {formatDistance(remainingDistance)}
             </Text>
           </View>
+
+          <Pressable
+            onPress={handleSave}
+            disabled={saveState !== "idle"}
+            style={({ pressed }) => [
+              styles.saveButton,
+              saveState === "saved" && styles.saveButtonSaved,
+              pressed && styles.saveButtonPressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.saveText,
+                saveState === "saved" && styles.saveTextSaved,
+              ]}
+            >
+              {saveState === "saving"
+                ? "..."
+                : saveState === "saved"
+                ? "Saved ✓"
+                : "Save"}
+            </Text>
+          </Pressable>
         </View>
 
         {/* Comparison bar (only when what-if active) */}
@@ -225,6 +307,31 @@ const styles = StyleSheet.create({
     height: 28,
     backgroundColor: colors.borderMedium,
     marginHorizontal: spacing.xl,
+  },
+  saveButton: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.bgSecondary,
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
+    marginLeft: spacing.md,
+  },
+  saveButtonPressed: {
+    backgroundColor: colors.bgPrimary,
+  },
+  saveButtonSaved: {
+    backgroundColor: "rgba(16, 185, 129, 0.15)",
+    borderColor: "rgba(16, 185, 129, 0.45)",
+  },
+  saveText: {
+    fontFamily: typography.bodyBold,
+    fontSize: 13,
+    color: colors.textPrimary,
+    letterSpacing: -0.1,
+  },
+  saveTextSaved: {
+    color: colors.success,
   },
   distanceBlock: { flex: 1 },
   distanceLabel: {
