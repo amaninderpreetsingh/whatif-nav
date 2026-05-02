@@ -238,9 +238,7 @@ export default function NavigationScreen() {
             id={wp.id}
             coordinate={[wp.coordinate.lng, wp.coordinate.lat]}
           >
-            <View style={styles.waypointPin}>
-              <View style={styles.waypointPinInner} />
-            </View>
+            <View style={styles.waypointPin} />
           </MapboxGL.PointAnnotation>
         ))}
 
@@ -250,9 +248,7 @@ export default function NavigationScreen() {
             id="current-position"
             coordinate={[currentPosition.lng, currentPosition.lat]}
           >
-            <View style={styles.currentPos}>
-              <View style={styles.currentPosDot} />
-            </View>
+            <View style={styles.currentPos} />
           </MapboxGL.PointAnnotation>
         )}
       </MapboxGL.MapView>
@@ -272,35 +268,27 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   map: { flex: 1 },
   waypointPin: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(148, 163, 184, 0.25)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "rgba(148, 163, 184, 0.6)",
-  },
-  waypointPinInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: "#94A3B8",
+    borderWidth: 3,
+    borderColor: colors.textPrimary,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
   },
   currentPos: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(59, 130, 246, 0.25)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  currentPosDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: colors.accent,
-    borderWidth: 2.5,
+    borderWidth: 3,
     borderColor: colors.textPrimary,
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
   },
 });

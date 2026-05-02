@@ -188,9 +188,7 @@ export default function HomeScreen() {
             id="current-location"
             coordinate={[currentLocation.lng, currentLocation.lat]}
           >
-            <View style={styles.currentPin}>
-              <View style={styles.currentPinDot} />
-            </View>
+            <View style={styles.currentPin} />
           </MapboxGL.PointAnnotation>
         )}
 
@@ -200,11 +198,7 @@ export default function HomeScreen() {
             id="destination"
             coordinate={[destination.coordinate.lng, destination.coordinate.lat]}
           >
-            <View style={styles.destPin}>
-              <View style={styles.destPinInner}>
-                <View style={styles.destPinCore} />
-              </View>
-            </View>
+            <View style={styles.destPin} />
           </MapboxGL.PointAnnotation>
         )}
 
@@ -409,44 +403,28 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
   },
   currentPin: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "rgba(59, 130, 246, 0.25)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  currentPinDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: colors.accent,
-    borderWidth: 2.5,
+    borderWidth: 3,
     borderColor: colors.textPrimary,
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
   },
   destPin: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(59, 130, 246, 0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  destPinInner: {
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: "rgba(59, 130, 246, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  destPinCore: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.accent,
-    borderWidth: 2,
+    backgroundColor: colors.accentBright,
+    borderWidth: 3.5,
     borderColor: colors.textPrimary,
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
   },
   previewCard: {
     position: "absolute",
