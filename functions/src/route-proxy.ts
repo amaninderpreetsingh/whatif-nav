@@ -1,7 +1,11 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
 import { requireAuth } from "./middleware/auth";
 import { checkRateLimit } from "./middleware/rate-limit";
 import { incrementUsage } from "./middleware/usage-tracker";
+
+const googleRoutesApiKey = defineSecret("GOOGLE_ROUTES_API_KEY");
+const mapboxSecretToken = defineSecret("MAPBOX_SECRET_TOKEN");
 
 interface Coordinate {
   lat: number;
@@ -15,7 +19,9 @@ interface RouteRequest {
   provider: "google" | "mapbox";
 }
 
-export const calculateRoute = onCall(async (request) => {
+export const calculateRoute = onCall(
+  { secrets: [googleRoutesApiKey, mapboxSecretToken] },
+  async (request) => {
   const userId = requireAuth(request);
   checkRateLimit(userId);
 
@@ -36,7 +42,8 @@ export const calculateRoute = onCall(async (request) => {
   } else {
     return await callMapboxDirections(origin, destination, waypoints);
   }
-});
+}
+);
 
 async function callGoogleRoutes(
   origin: Coordinate,
