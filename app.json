@@ -33,12 +33,7 @@
     "plugins": [
       "expo-router",
       "expo-location",
-      [
-        "@rnmapbox/maps",
-        {
-          "RNMapboxMapsDownloadToken": "YOUR_MAPBOX_SECRET_TOKEN"
-        }
-      ],
+      "@rnmapbox/maps",
       "expo-font"
     ]
   }
