@@ -2,10 +2,14 @@
 /**
  * Generates the WhatIf Nav app icon set from SVG.
  *
+ * Concept: A map showing a route from an origin pin, branching into one main
+ * path (bright, solid) and one alternative path (dim, dashed) — the literal
+ * "what-if" of navigation.
+ *
  * Outputs (all PNG, 1024x1024):
- *   assets/icon.png            -- Full icon: gradient bg + brand mark
- *   assets/adaptive-icon.png   -- Android foreground: brand mark with safe-area padding (transparent bg)
- *   assets/splash-icon.png     -- Splash logo: brand mark on the brand bg color
+ *   assets/icon.png            -- Full icon: gradient bg + map illustration
+ *   assets/adaptive-icon.png   -- Android foreground: illustration on transparent bg, padded
+ *   assets/splash-icon.png     -- Splash: illustration on the brand bg color
  *
  * Re-run with: node scripts/generate-icons.js
  */
@@ -17,53 +21,97 @@ const sharp = require("sharp");
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
 const SIZE = 1024;
 
-// Brand palette (must stay in sync with src/theme/index.ts)
 const COLORS = {
   bgDeep: "#070A14",
   bgPrimary: "#0A0E1A",
-  bgElevated: "#1A1F2E",
   bgHighlight: "#1E2538",
+  gridLine: "rgba(148, 163, 184, 0.06)",
   accent: "#3B82F6",
   accentBright: "#60A5FA",
+  accentDim: "#94A3B8",
   white: "#FFFFFF",
 };
 
 /**
- * Concentric rings + glowing core.
- * cx/cy/scale describe the layout in 1024-unit space.
+ * Builds the route illustration in 1024-unit coordinate space, centered.
+ * scale=1 fills the canvas; smaller scales pad inward (for adaptive/splash).
  */
-function brandMark({ cx = 512, cy = 512, scale = 1 } = {}) {
-  const ringFar = 360 * scale;
-  const ringMid = 280 * scale;
-  const ringNear = 200 * scale;
-  const glowR = 180 * scale;
-  const dotR = 120 * scale;
-  const hlRx = 40 * scale;
-  const hlRy = 32 * scale;
-  const hlOffset = 37 * scale;
+function mapIllustration({ scale = 1 } = {}) {
+  // All coords are designed for a 1024 canvas, then scaled around the center
+  const cx = 512;
+  const cy = 512;
+  const s = (n) => cx + (n - cx) * scale;
+  const ys = (n) => cy + (n - cy) * scale;
+  const w = (n) => n * scale; // stroke widths
+
+  // Origin pin (bottom)
+  const origin = { x: s(330), y: ys(820) };
+  // Fork node (the decision point)
+  const fork = { x: s(512), y: ys(540) };
+  // Main destination (upper right)
+  const mainDest = { x: s(780), y: ys(240) };
+  // Alternative destination (upper left)
+  const altDest = { x: s(244), y: ys(240) };
+
+  // Curve control points for that gentle road bend
+  const c1 = { x: s(330), y: ys(680) };
+  const c2 = { x: s(420), y: ys(580) };
+  const cMain1 = { x: s(620), y: ys(440) };
+  const cMain2 = { x: s(720), y: ys(340) };
+  const cAlt1 = { x: s(420), y: ys(440) };
+  const cAlt2 = { x: s(310), y: ys(340) };
+
+  const stroke = w(40);
+  const altStroke = w(28);
+  const dashGap = w(36);
+  const dashLen = w(46);
 
   return `
-  <!-- Outermost ring: faint ripple -->
-  <circle cx="${cx}" cy="${cy}" r="${ringFar}" fill="none"
-    stroke="${COLORS.accent}" stroke-width="${3 * scale}" opacity="0.12" />
+  <!-- Faint road outline halo for the main route -->
+  <path
+    d="M ${origin.x} ${origin.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${fork.x} ${fork.y}
+       C ${cMain1.x} ${cMain1.y}, ${cMain2.x} ${cMain2.y}, ${mainDest.x} ${mainDest.y}"
+    stroke="${COLORS.accent}" stroke-opacity="0.2"
+    stroke-width="${stroke + w(28)}"
+    stroke-linecap="round" stroke-linejoin="round" fill="none"
+  />
 
-  <!-- Mid ring -->
-  <circle cx="${cx}" cy="${cy}" r="${ringMid}" fill="none"
-    stroke="${COLORS.accent}" stroke-width="${4 * scale}" opacity="0.28" />
+  <!-- Alternative path (what-if) — dashed, dimmer -->
+  <path
+    d="M ${fork.x} ${fork.y} C ${cAlt1.x} ${cAlt1.y}, ${cAlt2.x} ${cAlt2.y}, ${altDest.x} ${altDest.y}"
+    stroke="${COLORS.accentDim}" stroke-opacity="0.85"
+    stroke-width="${altStroke}"
+    stroke-linecap="round" stroke-linejoin="round" fill="none"
+    stroke-dasharray="${dashLen} ${dashGap}"
+  />
 
-  <!-- Near ring: brightest, hints at exploration -->
-  <circle cx="${cx}" cy="${cy}" r="${ringNear}" fill="none"
-    stroke="${COLORS.accentBright}" stroke-width="${6 * scale}" opacity="0.6" />
+  <!-- Main route: origin → fork → main destination, solid bright blue -->
+  <path
+    d="M ${origin.x} ${origin.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${fork.x} ${fork.y}
+       C ${cMain1.x} ${cMain1.y}, ${cMain2.x} ${cMain2.y}, ${mainDest.x} ${mainDest.y}"
+    stroke="url(#routeGradient)"
+    stroke-width="${stroke}"
+    stroke-linecap="round" stroke-linejoin="round" fill="none"
+  />
 
-  <!-- Soft glow behind the core -->
-  <circle cx="${cx}" cy="${cy}" r="${glowR}" fill="url(#brandGlow)" />
+  <!-- Origin pin (filled circle with white core) -->
+  <circle cx="${origin.x}" cy="${origin.y}" r="${w(56)}"
+    fill="${COLORS.accent}" opacity="0.25" />
+  <circle cx="${origin.x}" cy="${origin.y}" r="${w(36)}"
+    fill="${COLORS.accent}" stroke="${COLORS.white}" stroke-width="${w(8)}" />
 
-  <!-- Solid core dot -->
-  <circle cx="${cx}" cy="${cy}" r="${dotR}" fill="url(#brandDot)" />
+  <!-- Alternative destination pin (smaller, dimmer) -->
+  <circle cx="${altDest.x}" cy="${altDest.y}" r="${w(28)}"
+    fill="${COLORS.accentDim}" stroke="${COLORS.white}" stroke-width="${w(6)}" opacity="0.85" />
 
-  <!-- Top-left highlight on the core for that 3D pop -->
-  <ellipse cx="${cx - hlOffset}" cy="${cy - hlOffset}"
-    rx="${hlRx}" ry="${hlRy}" fill="${COLORS.white}" opacity="0.3" />`;
+  <!-- Main destination pin (the prominent one) -->
+  <circle cx="${mainDest.x}" cy="${mainDest.y}" r="${w(60)}"
+    fill="${COLORS.accentBright}" opacity="0.3" />
+  <circle cx="${mainDest.x}" cy="${mainDest.y}" r="${w(40)}"
+    fill="${COLORS.accentBright}" stroke="${COLORS.white}" stroke-width="${w(10)}" />
+
+  <!-- Fork glow (decision point) -->
+  <circle cx="${fork.x}" cy="${fork.y}" r="${w(60)}" fill="url(#forkGlow)" />`;
 }
 
 const SHARED_DEFS = `
@@ -73,16 +121,19 @@ const SHARED_DEFS = `
     <stop offset="100%" stop-color="${COLORS.bgDeep}" />
   </radialGradient>
 
-  <radialGradient id="brandGlow" cx="50%" cy="50%" r="50%">
-    <stop offset="0%" stop-color="${COLORS.accent}" stop-opacity="0.55" />
-    <stop offset="60%" stop-color="${COLORS.accent}" stop-opacity="0.15" />
-    <stop offset="100%" stop-color="${COLORS.accent}" stop-opacity="0" />
+  <linearGradient id="routeGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="${COLORS.accent}" />
+    <stop offset="100%" stop-color="${COLORS.accentBright}" />
+  </linearGradient>
+
+  <radialGradient id="forkGlow" cx="50%" cy="50%" r="50%">
+    <stop offset="0%" stop-color="${COLORS.accentBright}" stop-opacity="0.85" />
+    <stop offset="100%" stop-color="${COLORS.accentBright}" stop-opacity="0" />
   </radialGradient>
 
-  <radialGradient id="brandDot" cx="40%" cy="40%" r="60%">
-    <stop offset="0%" stop-color="${COLORS.accentBright}" />
-    <stop offset="100%" stop-color="${COLORS.accent}" />
-  </radialGradient>`;
+  <pattern id="mapGrid" x="0" y="0" width="120" height="120" patternUnits="userSpaceOnUse">
+    <path d="M 120 0 L 0 0 0 120" fill="none" stroke="${COLORS.gridLine}" stroke-width="1.5" />
+  </pattern>`;
 
 function buildSVG({ background, content }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -94,27 +145,29 @@ function buildSVG({ background, content }) {
 }
 
 const iconSVG = buildSVG({
-  background: `<rect width="${SIZE}" height="${SIZE}" fill="url(#brandBg)" />`,
-  content: brandMark({ scale: 1 }),
+  background: `
+    <rect width="${SIZE}" height="${SIZE}" fill="url(#brandBg)" />
+    <rect width="${SIZE}" height="${SIZE}" fill="url(#mapGrid)" />`,
+  content: mapIllustration({ scale: 1 }),
 });
 
-// Android adaptive icon: foreground-only. The mask crops to a circle/squircle
-// at ~66% of the canvas, so we shrink the brand mark to fit safely inside.
 const adaptiveIconSVG = buildSVG({
   background: `<rect width="${SIZE}" height="${SIZE}" fill="transparent" />`,
-  content: brandMark({ scale: 0.66 }),
+  content: mapIllustration({ scale: 0.66 }),
 });
 
-// Splash icon: brand mark centered on the brand bg color (matches splash bg in app.config.js)
 const splashIconSVG = buildSVG({
   background: `<rect width="${SIZE}" height="${SIZE}" fill="${COLORS.bgPrimary}" />`,
-  content: brandMark({ scale: 0.55 }),
+  content: mapIllustration({ scale: 0.55 }),
 });
 
 async function render(svg, filename) {
   const filepath = path.join(ASSETS_DIR, filename);
   await sharp(Buffer.from(svg))
-    .resize(SIZE, SIZE, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize(SIZE, SIZE, {
+      fit: "contain",
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
     .png({ compressionLevel: 9 })
     .toFile(filepath);
   const { size } = fs.statSync(filepath);
