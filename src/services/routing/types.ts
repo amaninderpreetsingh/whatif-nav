@@ -110,3 +110,32 @@ export interface UserProfile {
     routeRequests: number;
   };
 }
+
+export interface TripHistoryEntry {
+  id: string;
+  userId: string;
+  routeKey: string; // hash of rounded origin+destination, used for grouping
+  origin: { lat: number; lng: number; address: string };
+  destination: { lat: number; lng: number; address: string };
+  startedAt: number; // unix ms timestamp
+  endedAt: number;
+  duration: number; // seconds (actual)
+  distance: number; // meters (actual or estimated)
+  estimatedDuration: number; // seconds (what the route originally predicted)
+  waypoints: { lat: number; lng: number; label: string }[];
+  arrivedAtDestination: boolean;
+}
+
+export interface TripHistoryGroup {
+  routeKey: string;
+  originAddress: string;
+  destinationAddress: string;
+  origin: { lat: number; lng: number };
+  destination: { lat: number; lng: number };
+  trips: TripHistoryEntry[];
+  averageDuration: number; // seconds
+  fastestDuration: number;
+  slowestDuration: number;
+  tripCount: number;
+  lastTripAt: number; // most recent trip timestamp (for sorting)
+}
