@@ -15,6 +15,7 @@ import { getTripHistory } from "@/services/firebase/firestore";
 import type {
   TripHistoryGroup,
   TripHistoryEntry,
+  TripHistoryVariant,
 } from "@/services/routing/types";
 import { colors, radius, spacing, typography } from "@/theme";
 
@@ -46,7 +47,8 @@ export default function HistoryScreen() {
   const user = getCurrentUser();
   const [groups, setGroups] = useState<TripHistoryGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!user) return;
@@ -55,9 +57,9 @@ export default function HistoryScreen() {
       .finally(() => setLoading(false));
   }, [user]);
 
-  const toggleExpand = (routeKey: string) => {
+  const toggleGroup = (routeKey: string) => {
     Haptics.selectionAsync();
-    setExpanded((prev) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(routeKey)) {
         next.delete(routeKey);
@@ -66,6 +68,84 @@ export default function HistoryScreen() {
       }
       return next;
     });
+  };
+
+  const toggleVariant = (compositeKey: string) => {
+    Haptics.selectionAsync();
+    setExpandedVariants((prev) => {
+      const next = new Set(prev);
+      if (next.has(compositeKey)) {
+        next.delete(compositeKey);
+      } else {
+        next.add(compositeKey);
+      }
+      return next;
+    });
+  };
+
+  const formatDistance = (m: number) => {
+    if (m < 1000) return `${Math.round(m)} m`;
+    return `${(m / 1000).toFixed(1)} km`;
+  };
+
+  const renderVariant = (
+    variant: TripHistoryVariant,
+    routeKey: string,
+    index: number
+  ) => {
+    const compositeKey = `${routeKey}::${variant.variantKey}`;
+    const isOpen = expandedVariants.has(compositeKey);
+    return (
+      <Pressable
+        key={compositeKey}
+        onPress={(e) => {
+          e.stopPropagation();
+          toggleVariant(compositeKey);
+        }}
+        style={({ pressed }) => [
+          styles.variantCard,
+          pressed && styles.variantCardPressed,
+        ]}
+      >
+        <View style={styles.variantHeader}>
+          <View style={styles.variantBadge}>
+            <Text style={styles.variantBadgeText}>{index + 1}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.variantTitle}>
+              {formatDistance(variant.averageDistance)} route
+            </Text>
+            <Text style={styles.variantSubtitle}>
+              {variant.tripCount} trip{variant.tripCount === 1 ? "" : "s"} ·
+              avg {formatDuration(variant.averageDuration)}
+            </Text>
+          </View>
+          <Text style={styles.expandChevron}>{isOpen ? "−" : "+"}</Text>
+        </View>
+
+        <View style={styles.variantStatsRow}>
+          <View style={styles.statBlock}>
+            <Text style={[styles.statValue, { color: colors.success }]}>
+              {formatDuration(variant.fastestDuration)}
+            </Text>
+            <Text style={styles.statLabel}>fastest</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statBlock}>
+            <Text style={[styles.statValue, { color: colors.danger }]}>
+              {formatDuration(variant.slowestDuration)}
+            </Text>
+            <Text style={styles.statLabel}>slowest</Text>
+          </View>
+        </View>
+
+        {isOpen && (
+          <View style={styles.tripList}>
+            {variant.trips.map(renderTrip)}
+          </View>
+        )}
+      </Pressable>
+    );
   };
 
   const renderTrip = (trip: TripHistoryEntry) => {
@@ -131,10 +211,10 @@ export default function HistoryScreen() {
           }}
           ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
           renderItem={({ item: group }) => {
-            const isOpen = expanded.has(group.routeKey);
+            const isOpen = expandedGroups.has(group.routeKey);
             return (
               <Pressable
-                onPress={() => toggleExpand(group.routeKey)}
+                onPress={() => toggleGroup(group.routeKey)}
                 style={({ pressed }) => [
                   styles.groupCard,
                   pressed && styles.groupCardPressed,
@@ -156,7 +236,7 @@ export default function HistoryScreen() {
                       </Text>
                     </View>
                   </View>
-                  <Text style={styles.tripCount}>{group.tripCount}×</Text>
+                  <Text style={styles.tripCount}>{group.totalTrips}×</Text>
                 </View>
 
                 <View style={styles.statsRow}>
@@ -183,8 +263,14 @@ export default function HistoryScreen() {
                 </View>
 
                 {isOpen && (
-                  <View style={styles.tripList}>
-                    {group.trips.map(renderTrip)}
+                  <View style={styles.variantList}>
+                    <Text style={styles.sectionLabel}>
+                      {group.variants.length} route{" "}
+                      {group.variants.length === 1 ? "variant" : "variants"}
+                    </Text>
+                    {group.variants.map((variant, idx) =>
+                      renderVariant(variant, group.routeKey, idx)
+                    )}
                   </View>
                 )}
               </Pressable>
@@ -316,7 +402,71 @@ const styles = StyleSheet.create({
     height: 28,
     backgroundColor: colors.borderSubtle,
   },
-  tripList: { marginTop: spacing.lg },
+  variantList: { marginTop: spacing.lg },
+  sectionLabel: {
+    fontFamily: typography.bodyMed,
+    fontSize: 11,
+    color: colors.textTertiary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: spacing.sm,
+  },
+  variantCard: {
+    backgroundColor: colors.bgSecondary,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    marginTop: spacing.sm,
+  },
+  variantCardPressed: { backgroundColor: colors.bgPrimary },
+  variantHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.md,
+  },
+  variantBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.accent,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: spacing.md,
+  },
+  variantBadgeText: {
+    fontFamily: typography.bodyBold,
+    fontSize: 11,
+    color: "#FFFFFF",
+  },
+  variantTitle: {
+    fontFamily: typography.displayMed,
+    fontSize: 15,
+    color: colors.textPrimary,
+    letterSpacing: -0.2,
+  },
+  variantSubtitle: {
+    fontFamily: typography.body,
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  expandChevron: {
+    fontFamily: typography.body,
+    fontSize: 22,
+    color: colors.textSecondary,
+    width: 24,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  variantStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(20, 25, 40, 0.45)",
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  tripList: { marginTop: spacing.md },
   tripRow: {
     flexDirection: "row",
     alignItems: "center",

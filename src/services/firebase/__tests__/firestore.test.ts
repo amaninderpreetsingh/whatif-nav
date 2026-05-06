@@ -209,7 +209,7 @@ describe("firestore service", () => {
     expect(groups).toHaveLength(2);
 
     const groupA = groups.find((g) => g.routeKey === "A")!;
-    expect(groupA.tripCount).toBe(2);
+    expect(groupA.totalTrips).toBe(2);
     expect(groupA.fastestDuration).toBe(1000);
     expect(groupA.slowestDuration).toBe(1500);
     expect(groupA.averageDuration).toBe(1250);
@@ -218,7 +218,7 @@ describe("firestore service", () => {
     expect(groupA.destinationAddress).toBe("Work");
 
     const groupB = groups.find((g) => g.routeKey === "B")!;
-    expect(groupB.tripCount).toBe(1);
+    expect(groupB.totalTrips).toBe(1);
 
     // Sorted by lastTripAt desc — group B (6000) should be first
     expect(groups[0].routeKey).toBe("B");

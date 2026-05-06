@@ -114,7 +114,8 @@ export interface UserProfile {
 export interface TripHistoryEntry {
   id: string;
   userId: string;
-  routeKey: string; // hash of rounded origin+destination, used for grouping
+  routeKey: string;     // hash of rounded origin+destination
+  variantKey: string;   // hash of sampled polyline -- distinguishes route variants
   origin: { lat: number; lng: number; address: string };
   destination: { lat: number; lng: number; address: string };
   startedAt: number; // unix ms timestamp
@@ -126,16 +127,27 @@ export interface TripHistoryEntry {
   arrivedAtDestination: boolean;
 }
 
+export interface TripHistoryVariant {
+  variantKey: string;
+  trips: TripHistoryEntry[];
+  averageDuration: number;
+  fastestDuration: number;
+  slowestDuration: number;
+  averageDistance: number;
+  tripCount: number;
+  lastTripAt: number;
+}
+
 export interface TripHistoryGroup {
   routeKey: string;
   originAddress: string;
   destinationAddress: string;
   origin: { lat: number; lng: number };
   destination: { lat: number; lng: number };
-  trips: TripHistoryEntry[];
-  averageDuration: number; // seconds
+  variants: TripHistoryVariant[]; // sorted by lastTripAt desc
+  totalTrips: number;
+  averageDuration: number; // across all variants
   fastestDuration: number;
   slowestDuration: number;
-  tripCount: number;
-  lastTripAt: number; // most recent trip timestamp (for sorting)
+  lastTripAt: number;
 }

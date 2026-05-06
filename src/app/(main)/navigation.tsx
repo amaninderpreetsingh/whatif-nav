@@ -373,6 +373,7 @@ export default function NavigationScreen() {
               lng: destination.lng,
               address: `${destination.lat.toFixed(4)}, ${destination.lng.toFixed(4)}`,
             },
+            routeCoordinates: activeRoute.coordinates,
             startedAt,
             endedAt,
             duration: Math.round((endedAt - startedAt) / 1000),

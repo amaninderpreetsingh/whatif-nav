@@ -18,6 +18,7 @@ import type {
   SavedRoute,
   TripHistoryEntry,
   TripHistoryGroup,
+  TripHistoryVariant,
 } from "../routing/types";
 
 export async function createUserProfile(
@@ -104,10 +105,31 @@ function computeRouteKey(
   return `${round(origin.lat)},${round(origin.lng)}|${round(destination.lat)},${round(destination.lng)}`;
 }
 
+/**
+ * Hashes the route variant by sampling 8 evenly-spaced points along the polyline
+ * and rounding each to ~110m precision. Two trips on the same physical roads
+ * produce the same key; trips on different roads (highway vs backstreets) differ.
+ */
+function computeVariantKey(
+  coordinates: { lat: number; lng: number }[]
+): string {
+  if (!coordinates || coordinates.length === 0) return "empty";
+  const SAMPLE_COUNT = 8;
+  const samples: string[] = [];
+  for (let i = 0; i < SAMPLE_COUNT; i++) {
+    const fraction = SAMPLE_COUNT === 1 ? 0 : i / (SAMPLE_COUNT - 1);
+    const idx = Math.round(fraction * (coordinates.length - 1));
+    const c = coordinates[idx];
+    samples.push(`${c.lat.toFixed(3)},${c.lng.toFixed(3)}`);
+  }
+  return samples.join("|");
+}
+
 export async function saveTripToHistory(trip: {
   userId: string;
   origin: { lat: number; lng: number; address: string };
   destination: { lat: number; lng: number; address: string };
+  routeCoordinates: { lat: number; lng: number }[];
   startedAt: number;
   endedAt: number;
   duration: number;
@@ -118,7 +140,10 @@ export async function saveTripToHistory(trip: {
 }): Promise<string> {
   const tripsRef = collection(db, "tripHistory");
   const routeKey = computeRouteKey(trip.origin, trip.destination);
-  const docRef = await addDoc(tripsRef, { ...trip, routeKey });
+  const variantKey = computeVariantKey(trip.routeCoordinates);
+  // Don't persist the full polyline -- just the keys we need for grouping
+  const { routeCoordinates: _, ...rest } = trip;
+  const docRef = await addDoc(tripsRef, { ...rest, routeKey, variantKey });
   return docRef.id;
 }
 
@@ -136,36 +161,64 @@ export async function getTripHistory(
     (d) => ({ id: d.id, ...d.data() }) as TripHistoryEntry
   );
 
-  // Group by routeKey
-  const groups = new Map<string, TripHistoryEntry[]>();
+  // First level: group by routeKey (origin+destination)
+  const byRoute = new Map<string, TripHistoryEntry[]>();
   for (const trip of trips) {
-    const list = groups.get(trip.routeKey) || [];
+    const list = byRoute.get(trip.routeKey) || [];
     list.push(trip);
-    groups.set(trip.routeKey, list);
+    byRoute.set(trip.routeKey, list);
   }
 
-  return Array.from(groups.entries())
-    .map(([routeKey, groupTrips]): TripHistoryGroup => {
-      const durations = groupTrips.map((t) => t.duration);
+  return Array.from(byRoute.entries())
+    .map(([routeKey, routeTrips]): TripHistoryGroup => {
+      // Second level: group by variantKey (route taken)
+      const byVariant = new Map<string, TripHistoryEntry[]>();
+      for (const trip of routeTrips) {
+        const key = trip.variantKey || "legacy";
+        const list = byVariant.get(key) || [];
+        list.push(trip);
+        byVariant.set(key, list);
+      }
+
+      const variants = Array.from(byVariant.entries())
+        .map(([variantKey, variantTrips]): TripHistoryVariant => {
+          const durations = variantTrips.map((t) => t.duration);
+          const distances = variantTrips.map((t) => t.distance);
+          return {
+            variantKey,
+            trips: variantTrips,
+            averageDuration:
+              durations.reduce((a, b) => a + b, 0) / durations.length,
+            fastestDuration: Math.min(...durations),
+            slowestDuration: Math.max(...durations),
+            averageDistance:
+              distances.reduce((a, b) => a + b, 0) / distances.length,
+            tripCount: variantTrips.length,
+            lastTripAt: Math.max(...variantTrips.map((t) => t.endedAt)),
+          };
+        })
+        .sort((a, b) => b.lastTripAt - a.lastTripAt);
+
+      const allDurations = routeTrips.map((t) => t.duration);
       return {
         routeKey,
-        originAddress: groupTrips[0].origin.address,
-        destinationAddress: groupTrips[0].destination.address,
+        originAddress: routeTrips[0].origin.address,
+        destinationAddress: routeTrips[0].destination.address,
         origin: {
-          lat: groupTrips[0].origin.lat,
-          lng: groupTrips[0].origin.lng,
+          lat: routeTrips[0].origin.lat,
+          lng: routeTrips[0].origin.lng,
         },
         destination: {
-          lat: groupTrips[0].destination.lat,
-          lng: groupTrips[0].destination.lng,
+          lat: routeTrips[0].destination.lat,
+          lng: routeTrips[0].destination.lng,
         },
-        trips: groupTrips,
+        variants,
+        totalTrips: routeTrips.length,
         averageDuration:
-          durations.reduce((a, b) => a + b, 0) / durations.length,
-        fastestDuration: Math.min(...durations),
-        slowestDuration: Math.max(...durations),
-        tripCount: groupTrips.length,
-        lastTripAt: Math.max(...groupTrips.map((t) => t.endedAt)),
+          allDurations.reduce((a, b) => a + b, 0) / allDurations.length,
+        fastestDuration: Math.min(...allDurations),
+        slowestDuration: Math.max(...allDurations),
+        lastTripAt: Math.max(...routeTrips.map((t) => t.endedAt)),
       };
     })
     .sort((a, b) => b.lastTripAt - a.lastTripAt);
