@@ -6,6 +6,8 @@ import {
   getSavedRoutes,
   deleteSavedRoute,
   updateLastUsedAt,
+  saveTripToHistory,
+  getTripHistory,
 } from "../firestore";
 
 const mockSetDoc = jest.fn(() => Promise.resolve());
@@ -124,5 +126,101 @@ describe("firestore service", () => {
   it("deleteSavedRoute calls deleteDoc", async () => {
     await deleteSavedRoute("route-1");
     expect(mockDeleteDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it("saveTripToHistory calls addDoc with routeKey", async () => {
+    const id = await saveTripToHistory({
+      userId: "uid-1",
+      origin: { lat: 40.7128, lng: -74.006, address: "Origin" },
+      destination: { lat: 40.7484, lng: -73.9857, address: "Dest" },
+      startedAt: 1000,
+      endedAt: 2200,
+      duration: 1200,
+      distance: 5000,
+      estimatedDuration: 1100,
+      waypoints: [],
+      arrivedAtDestination: true,
+    });
+    expect(id).toBe("route-123");
+    expect(mockAddDoc).toHaveBeenCalledTimes(1);
+    const calls = mockAddDoc.mock.calls as any[];
+    const writtenDoc = calls[0][1];
+    expect(writtenDoc).toHaveProperty("routeKey");
+    expect(writtenDoc.routeKey).toBe("40.713,-74.006|40.748,-73.986");
+    expect(writtenDoc.userId).toBe("uid-1");
+    expect(writtenDoc.arrivedAtDestination).toBe(true);
+  });
+
+  it("getTripHistory groups trips by routeKey and computes stats", async () => {
+    mockGetDocs.mockResolvedValueOnce({
+      docs: [
+        {
+          id: "trip-1",
+          data: () => ({
+            userId: "uid-1",
+            routeKey: "A",
+            origin: { lat: 40.7, lng: -74.0, address: "Home" },
+            destination: { lat: 40.8, lng: -73.9, address: "Work" },
+            startedAt: 1000,
+            endedAt: 2000,
+            duration: 1000,
+            distance: 5000,
+            estimatedDuration: 900,
+            waypoints: [],
+            arrivedAtDestination: true,
+          }),
+        },
+        {
+          id: "trip-2",
+          data: () => ({
+            userId: "uid-1",
+            routeKey: "A",
+            origin: { lat: 40.7, lng: -74.0, address: "Home" },
+            destination: { lat: 40.8, lng: -73.9, address: "Work" },
+            startedAt: 3000,
+            endedAt: 4500,
+            duration: 1500,
+            distance: 5000,
+            estimatedDuration: 900,
+            waypoints: [],
+            arrivedAtDestination: true,
+          }),
+        },
+        {
+          id: "trip-3",
+          data: () => ({
+            userId: "uid-1",
+            routeKey: "B",
+            origin: { lat: 41.0, lng: -73.0, address: "Foo" },
+            destination: { lat: 41.5, lng: -72.5, address: "Bar" },
+            startedAt: 5000,
+            endedAt: 6000,
+            duration: 1000,
+            distance: 8000,
+            estimatedDuration: 1100,
+            waypoints: [],
+            arrivedAtDestination: false,
+          }),
+        },
+      ],
+    } as any);
+
+    const groups = await getTripHistory("uid-1");
+    expect(groups).toHaveLength(2);
+
+    const groupA = groups.find((g) => g.routeKey === "A")!;
+    expect(groupA.tripCount).toBe(2);
+    expect(groupA.fastestDuration).toBe(1000);
+    expect(groupA.slowestDuration).toBe(1500);
+    expect(groupA.averageDuration).toBe(1250);
+    expect(groupA.lastTripAt).toBe(4500);
+    expect(groupA.originAddress).toBe("Home");
+    expect(groupA.destinationAddress).toBe("Work");
+
+    const groupB = groups.find((g) => g.routeKey === "B")!;
+    expect(groupB.tripCount).toBe(1);
+
+    // Sorted by lastTripAt desc — group B (6000) should be first
+    expect(groups[0].routeKey).toBe("B");
   });
 });
