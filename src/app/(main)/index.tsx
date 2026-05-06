@@ -335,6 +335,21 @@ export default function HomeScreen() {
         <Pressable
           onPress={() => {
             Haptics.selectionAsync();
+            router.push("/(main)/history");
+          }}
+        >
+          <BlurView
+            intensity={50}
+            tint="dark"
+            style={[styles.chip, styles.chipBlur]}
+          >
+            <Text style={styles.chipText}>History</Text>
+          </BlurView>
+        </Pressable>
+        <View style={{ height: spacing.sm }} />
+        <Pressable
+          onPress={() => {
+            Haptics.selectionAsync();
             router.push("/(main)/settings");
           }}
         >
