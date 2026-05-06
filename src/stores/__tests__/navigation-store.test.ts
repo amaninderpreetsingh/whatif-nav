@@ -16,17 +16,23 @@ describe("navigation store", () => {
     const state = useNavigationStore.getState();
     expect(state.activeRoute).toBeNull();
     expect(state.isNavigating).toBe(false);
+    expect(state.startedAt).toBeNull();
   });
 
   it("startNavigation sets route and navigating flag", () => {
     const origin: Coordinate = { lat: 40.0, lng: -74.0 };
     const dest: Coordinate = { lat: 41.0, lng: -73.0 };
+    const before = Date.now();
     useNavigationStore.getState().startNavigation(mockRoute, origin, dest);
+    const after = Date.now();
     const state = useNavigationStore.getState();
     expect(state.activeRoute).toEqual(mockRoute);
     expect(state.isNavigating).toBe(true);
     expect(state.origin).toEqual(origin);
     expect(state.destination).toEqual(dest);
+    expect(typeof state.startedAt).toBe("number");
+    expect(state.startedAt).toBeGreaterThanOrEqual(before);
+    expect(state.startedAt).toBeLessThanOrEqual(after);
   });
 
   it("updateETA updates remaining time", () => {
@@ -51,6 +57,16 @@ describe("navigation store", () => {
     const state = useNavigationStore.getState();
     expect(state.activeRoute).toBeNull();
     expect(state.isNavigating).toBe(false);
+    expect(state.startedAt).toBeNull();
+  });
+
+  it("reset clears startedAt", () => {
+    useNavigationStore.getState().startNavigation(
+      mockRoute, { lat: 40, lng: -74 }, { lat: 41, lng: -73 }
+    );
+    expect(useNavigationStore.getState().startedAt).not.toBeNull();
+    useNavigationStore.getState().reset();
+    expect(useNavigationStore.getState().startedAt).toBeNull();
   });
 
   it("replaceRoute swaps active route", () => {

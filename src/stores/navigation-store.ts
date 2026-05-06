@@ -9,6 +9,7 @@ interface NavigationState {
   isNavigating: boolean;
   remainingDuration: number;
   remainingDistance: number;
+  startedAt: number | null;
 
   startNavigation: (route: NormalizedRoute, origin: Coordinate, destination: Coordinate) => void;
   stopNavigation: () => void;
@@ -27,6 +28,7 @@ const initialState = {
   isNavigating: false,
   remainingDuration: 0,
   remainingDistance: 0,
+  startedAt: null,
 };
 
 export const useNavigationStore = create<NavigationState>((set) => ({
@@ -40,6 +42,7 @@ export const useNavigationStore = create<NavigationState>((set) => ({
       isNavigating: true,
       remainingDuration: route.duration,
       remainingDistance: route.distance,
+      startedAt: Date.now(),
     }),
 
   stopNavigation: () => set(initialState),
