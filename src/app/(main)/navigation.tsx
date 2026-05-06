@@ -19,6 +19,8 @@ import { MapboxRouteProvider } from "@/services/routing/mapbox-provider";
 import { LocationService } from "@/services/location/location-service";
 import { debounce } from "@/utils/debounce";
 import type { Coordinate, Step, WhatIfWaypoint } from "@/services/routing/types";
+import { getCurrentUser } from "@/services/firebase/auth";
+import { saveTripToHistory } from "@/services/firebase/firestore";
 import Toast from "react-native-toast-message";
 import { colors, typography } from "@/theme";
 
@@ -79,6 +81,8 @@ export default function NavigationScreen() {
   const mapRef = useRef<MapboxGL.MapView | null>(null);
   const [visibleBounds, setVisibleBounds] = useState<VisibleBounds | null>(null);
   const boundsUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [arrivalPromptShown, setArrivalPromptShown] = useState(false);
+  const arrivalPromptShownRef = useRef(false);
 
   const allManeuverSteps = useMemo(() => {
     if (!activeRoute) return [];
@@ -129,6 +133,9 @@ export default function NavigationScreen() {
   useEffect(() => {
     if (!activeRoute) return;
 
+    setArrivalPromptShown(false);
+    arrivalPromptShownRef.current = false;
+
     locationService.requestPermissions().then((granted) => {
       if (!granted) {
         Toast.show({ type: "error", text1: "Location permission required" });
@@ -142,10 +149,35 @@ export default function NavigationScreen() {
         if (update.routeState === "OFF_ROUTE") {
           handleReroute(update.snapped);
         }
+
+        // Auto-arrival: progress > 98% AND remaining distance is short
+        if (
+          !arrivalPromptShownRef.current &&
+          update.progress >= 0.98 &&
+          activeRoute.distance * (1 - update.progress) < 50
+        ) {
+          arrivalPromptShownRef.current = true;
+          setArrivalPromptShown(true);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          Alert.alert("You've arrived", "Save this trip to history?", [
+            {
+              text: "Skip",
+              onPress: () => finishTrip(true, false),
+            },
+            {
+              text: "Save",
+              onPress: () => finishTrip(true, true),
+            },
+          ]);
+        }
       });
     });
 
-    return () => locationService.stopTracking();
+    return () => {
+      locationService.stopTracking();
+      arrivalPromptShownRef.current = false;
+      setArrivalPromptShown(false);
+    };
   }, [activeRoute]);
 
   const handleReroute = async (position: Coordinate) => {
@@ -321,18 +353,70 @@ export default function NavigationScreen() {
     }
   };
 
+  const finishTrip = async (arrived: boolean, saveToHistory: boolean) => {
+    const startedAt = useNavigationStore.getState().startedAt;
+    const endedAt = Date.now();
+
+    if (saveToHistory && startedAt && origin && destination && activeRoute) {
+      const user = getCurrentUser();
+      if (user) {
+        try {
+          await saveTripToHistory({
+            userId: user.uid,
+            origin: {
+              lat: origin.lat,
+              lng: origin.lng,
+              address: `${origin.lat.toFixed(4)}, ${origin.lng.toFixed(4)}`,
+            },
+            destination: {
+              lat: destination.lat,
+              lng: destination.lng,
+              address: `${destination.lat.toFixed(4)}, ${destination.lng.toFixed(4)}`,
+            },
+            startedAt,
+            endedAt,
+            duration: Math.round((endedAt - startedAt) / 1000),
+            distance: activeRoute.distance,
+            estimatedDuration: activeRoute.duration,
+            waypoints: useWhatIfStore.getState().waypoints.map((wp) => ({
+              lat: wp.coordinate.lat,
+              lng: wp.coordinate.lng,
+              label: wp.label,
+            })),
+            arrivedAtDestination: arrived,
+          });
+          Toast.show({ type: "success", text1: "Trip saved to history" });
+        } catch (err: any) {
+          Toast.show({
+            type: "error",
+            text1: "Failed to save trip",
+            text2: err?.message,
+          });
+        }
+      }
+    }
+
+    locationService.stopTracking();
+    endWhatIf();
+    stopNavigation();
+    router.replace("/(main)");
+  };
+
   const handleEndRoute = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert("End route?", undefined, [
+    Alert.alert("End trip?", undefined, [
       { text: "Cancel", style: "cancel" },
       {
-        text: "End",
+        text: "End without saving",
         style: "destructive",
         onPress: () => {
-          locationService.stopTracking();
-          endWhatIf();
-          stopNavigation();
-          router.replace("/(main)");
+          finishTrip(false, false);
+        },
+      },
+      {
+        text: "Save & end",
+        onPress: () => {
+          finishTrip(false, true);
         },
       },
     ]);
